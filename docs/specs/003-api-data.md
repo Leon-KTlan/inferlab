@@ -18,6 +18,7 @@
 | `POST` | `/experiments` | 创建实验模板 |
 | `GET` | `/experiments/{id}` | 查询实验配置 |
 | `POST` | `/experiments/{id}/runs` | 启动 Run |
+| `GET` | `/runs` | 查询当前访问者最近 Run |
 | `GET` | `/runs/{id}` | 查询状态和汇总 |
 | `POST` | `/runs/{id}/cancel` | 取消 Run |
 | `GET` | `/runs/{id}/events` | 查询运行事件 |

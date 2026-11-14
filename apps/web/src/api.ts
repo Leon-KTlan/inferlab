@@ -147,6 +147,7 @@ async function getNormalizedRun(id: string): Promise<Run> {
 export const api = {
   createExperiment: (input: ExperimentInput) => request<BackendExperiment>('/experiments', { method: 'POST', body: JSON.stringify(toBackendConfig(input)) }).then(experiment => ({ id: experiment.experiment_id, ...experiment })),
   startRun: (experimentId: string) => request<BackendRun>(`/experiments/${encodeURIComponent(experimentId)}/runs`, { method: 'POST' }).then(raw => normalizeRun(raw)),
+  listRuns: () => request<{ runs: BackendRun[] }>('/runs').then(body => body.runs.map(raw => normalizeRun(raw))),
   getRun: (id: string) => getNormalizedRun(id),
   cancelRun: async (id: string) => { await request(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }); return getNormalizedRun(id) },
   getReport: (id: string) => request<BackendReport>(`/runs/${encodeURIComponent(id)}/report`).then(raw => ({

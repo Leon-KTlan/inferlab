@@ -18,6 +18,7 @@ go run .
 - `GET /api/v1/experiments` 返回当前访问者最近100个实验：`{experiments:[...]}`。
 - `GET /api/v1/experiments/{id}` 读取配置。
 - `POST /api/v1/experiments/{id}/runs` 启动实验，202 返回 Run。
+- `GET /api/v1/runs` 返回当前访问者最近100次 Run，用于刷新后恢复工作台。
 - `GET /api/v1/runs/{id}` 读取持久化状态、配置快照和实时指标。
 - `POST /api/v1/runs/{id}/cancel` 异步幂等取消，继续轮询确认终态。
 - `GET /api/v1/runs/{id}/events?after=0` 按事件ID查询，单次最多200条。

@@ -65,6 +65,7 @@ func newApp(databasePath string, secret []byte, production bool, webDir string) 
 	mux.HandleFunc("GET /api/v1/experiments/{id}", a.getExperiment)
 	mux.HandleFunc("POST /api/v1/experiments/{id}/runs", a.startRun)
 	mux.HandleFunc("GET /api/v1/runs/{id}", a.getRun)
+	mux.HandleFunc("GET /api/v1/runs", a.listRuns)
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", a.cancelRun)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", a.getEvents)
 	mux.HandleFunc("GET /api/v1/runs/{id}/report", a.getReport)
@@ -248,6 +249,15 @@ func (a *App) getRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, run)
+}
+
+func (a *App) listRuns(w http.ResponseWriter, r *http.Request) {
+	runs, err := a.store.runs(a.owner(w, r))
+	if err != nil {
+		writeError(w, 500, "STORAGE_READ_FAILED", "could not read runs")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"runs": runs})
 }
 
 func (a *App) cancelRun(w http.ResponseWriter, r *http.Request) {

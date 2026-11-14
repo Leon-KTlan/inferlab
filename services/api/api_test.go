@@ -172,6 +172,13 @@ func TestAPILifecyclePersistenceIsolation(t *testing.T) {
 	if stageCount != run.CompletedCount {
 		t.Fatal("stage counts inconsistent")
 	}
+	var recent struct {
+		Runs []Run `json:"runs"`
+	}
+	request(t, client, "GET", base+"/api/v1/runs", nil, 200, &recent)
+	if len(recent.Runs) != 1 || recent.Runs[0].RunID != run.RunID {
+		t.Fatalf("run history missing current run: %+v", recent.Runs)
+	}
 	var persistedSamples int
 	if err := app.store.db.QueryRow("SELECT count(*) FROM samples WHERE run_id=?", run.RunID).Scan(&persistedSamples); err != nil || persistedSamples != run.CompletedCount {
 		t.Fatalf("samples not persisted: count=%d err=%v", persistedSamples, err)
