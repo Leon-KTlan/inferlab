@@ -145,6 +145,28 @@ func (s *Store) run(owner, id string) (Run, error) {
 	return r, err
 }
 
+func (s *Store) runs(owner string) ([]Run, error) {
+	rows, err := s.db.Query("SELECT data FROM runs WHERE owner=? ORDER BY rowid DESC LIMIT 100", owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	runs := []Run{}
+	for rows.Next() {
+		var data []byte
+		if err := rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		var run Run
+		if err := json.Unmarshal(data, &run); err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
 func (s *Store) saveRun(r Run, sample *Sample, eventType string) error {
 	data, err := json.Marshal(r)
 	if err != nil {
