@@ -44,4 +44,4 @@ curl --fail https://<staging-domain>/healthz
 
 ## 生产边界
 
-本手册不会自动执行 DNS 切换、实例删除、数据库删除或备份覆盖。生产发布可以无人值守执行，但所有破坏性基础设施变更必须在执行前确认目标、备份和回滚路径。
+本手册不会自动执行 DNS 切换、实例删除、数据库删除或备份覆盖。生产 workflow 仅支持手动触发，绑定 GitHub `production` Environment，并使用独立的 `PRODUCTION_*` secrets：`PRODUCTION_SSH_HOST`、`PRODUCTION_SSH_USER`、`PRODUCTION_SSH_PRIVATE_KEY`、`PRODUCTION_KNOWN_HOSTS`、`PRODUCTION_DEPLOY_DIR`、`INFERLAB_PRODUCTION_SESSION_SECRET`、`PRODUCTION_REGISTRY_USER` 和 `PRODUCTION_REGISTRY_TOKEN`。生产发布可以无人值守执行，但所有破坏性基础设施变更必须在执行前确认目标、备份和回滚路径。
