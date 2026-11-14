@@ -381,7 +381,30 @@ func TestRestartRecoveryAndProductionSecret(t *testing.T) {
 		t.Fatalf("bad recovery %+v %v", recovered, err)
 	}
 	if _, err := newApp(filepath.Join(t.TempDir(), "prod"), nil, true, ""); err == nil {
-		t.Fatal("production must require explicit secret")
+		t.Fatal("secure environments must require explicit secret")
+	}
+}
+
+func TestSecureEnvironmentCookie(t *testing.T) {
+	app, err := newApp(filepath.Join(t.TempDir(), "db"), bytes.Repeat([]byte("s"), 32), true, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	server := httptest.NewServer(app)
+	defer server.Close()
+	body, err := json.Marshal(testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.Post(server.URL+"/api/v1/experiments", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	cookies := response.Cookies()
+	if len(cookies) != 1 || !cookies[0].Secure || !cookies[0].HttpOnly {
+		t.Fatalf("secure cookie flags missing: %+v", cookies)
 	}
 }
 

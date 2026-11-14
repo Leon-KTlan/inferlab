@@ -34,9 +34,9 @@ func newID(prefix string) string {
 	return prefix + "_" + base64.RawURLEncoding.EncodeToString(b)
 }
 
-func newApp(databasePath string, secret []byte, production bool, webDir string) (*App, error) {
-	if production && len(secret) < 32 {
-		return nil, errors.New("SESSION_SECRET must contain at least 32 bytes in production")
+func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (*App, error) {
+	if secureEnv && len(secret) < 32 {
+		return nil, errors.New("SESSION_SECRET must contain at least 32 bytes in staging or production")
 	}
 	store, err := openStore(databasePath)
 	if err != nil {
@@ -56,7 +56,7 @@ func newApp(databasePath string, secret []byte, production bool, webDir string) 
 	if err != nil {
 		return cleanup(err)
 	}
-	a := &App{store: store, runner: newRunner(store, mock), mock: mock, secret: secret, secure: production}
+	a := &App{store: store, runner: newRunner(store, mock), mock: mock, secret: secret, secure: secureEnv}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /api/v1/healthz", a.health)

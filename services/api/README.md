@@ -8,7 +8,7 @@ go run .
 
 默认监听 `127.0.0.1:8080`。`GET /healthz` 检查数据库连通性。
 
-配置环境变量：`LISTEN_ADDR`（监听地址）、`DB_PATH`（默认 `data/inferlab.db`）、`WEB_DIR`（可选，前端构建目录）、`APP_ENV`（local/staging/production）、`SESSION_SECRET`（签名密钥）。生产必须提供至少32字节的 `SESSION_SECRET` 并通过 HTTPS 反向代理访问；local/staging 未配置时在数据库保存随机签名密钥，以保持重启后的匿名会话。
+配置环境变量：`LISTEN_ADDR`（监听地址）、`DB_PATH`（默认 `data/inferlab.db`）、`WEB_DIR`（可选，前端构建目录）、`APP_ENV`（local/staging/production）、`SESSION_SECRET`（签名密钥）。staging 和 production 必须提供至少32字节的 `SESSION_SECRET` 并通过 HTTPS 反向代理访问；local 未配置时在数据库保存随机签名密钥，以保持重启后的匿名会话。
 
 ## API
 
