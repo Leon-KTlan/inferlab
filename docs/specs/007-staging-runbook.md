@@ -36,7 +36,7 @@ curl --fail https://<staging-domain>/healthz
 
 ## 备份和回滚
 
-1. 发布前部署脚本停止当前容器，在 `$DEPLOY_DIR/backups/` 保存带 UTC 时间戳的 SQLite 主库及存在的 `-wal`/`-shm` 文件。
+1. 发布前 `deploy-environment.sh` 停止当前容器，在 `$DEPLOY_DIR/backups/` 保存带 UTC 时间戳的 SQLite 主库及存在的 `-wal`/`-shm` 文件。
 2. 保存当前镜像的本地 rollback tag；新镜像使用 commit 对应的 registry digest。
 3. 应用健康检查或 Mock smoke 失败时，先停止失败容器并保存 `failed-<timestamp>.db` 副本，再恢复上一镜像并重启。
 4. 回滚不会自动覆盖数据库；恢复数据库前必须停止服务、保留失败副本，并人工确认要恢复的备份文件。

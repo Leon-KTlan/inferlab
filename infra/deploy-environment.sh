@@ -96,7 +96,7 @@ run_smoke() {
 
   response="$(curl --fail --silent --show-error --max-time 10 -b "$cookie_jar" "http://127.0.0.1:8080/api/v1/runs/$run_id/report")" || return 1
   printf '%s' "$response" | grep -q '"methodology"' || { echo "Smoke failed: report methodology missing" >&2; return 1; }
-  echo "InferLab staging Mock smoke passed for run $run_id"
+  echo "InferLab Mock smoke passed for run $run_id"
 }
 
 rollback() {
@@ -139,7 +139,7 @@ if ! "${compose[@]}" up -d --no-build --remove-orphans inferlab; then
 fi
 
 if wait_for_health && run_smoke; then
-  echo "InferLab staging health and Mock smoke checks passed with $INFERLAB_IMAGE"
+  echo "InferLab health and Mock smoke checks passed with $INFERLAB_IMAGE"
   exit 0
 fi
 

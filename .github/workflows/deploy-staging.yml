@@ -64,7 +64,7 @@ jobs:
           fi
           printf 'INFERLAB_IMAGE=%s\nINFERLAB_SESSION_SECRET=%s\n' "$IMAGE" "$SESSION_SECRET" > "$env_file"
           ssh "$STAGING_USER@$STAGING_HOST" "mkdir -p '$DEPLOY_DIR/infra'"
-          scp infra/docker-compose.yml infra/deploy-staging.sh "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/infra/"
+          scp infra/docker-compose.yml infra/deploy-environment.sh "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/infra/"
           scp "$env_file" "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/.env"
 
       - name: Login to registry on staging host
@@ -81,4 +81,4 @@ jobs:
           STAGING_HOST: ${{ secrets.STAGING_SSH_HOST }}
           STAGING_USER: ${{ secrets.STAGING_SSH_USER }}
           DEPLOY_DIR: ${{ secrets.STAGING_DEPLOY_DIR }}
-        run: ssh "$STAGING_USER@$STAGING_HOST" "chmod 700 '$DEPLOY_DIR/infra/deploy-staging.sh' && DEPLOY_DIR='$DEPLOY_DIR' bash '$DEPLOY_DIR/infra/deploy-staging.sh'"
+        run: ssh "$STAGING_USER@$STAGING_HOST" "chmod 700 '$DEPLOY_DIR/infra/deploy-environment.sh' && DEPLOY_DIR='$DEPLOY_DIR' bash '$DEPLOY_DIR/infra/deploy-environment.sh'"
