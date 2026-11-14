@@ -1,7 +1,7 @@
 .PHONY: api-run api-test web-install web-check web-build check
 
 api-run:
-	cd services/api && mkdir -p data && go run ./cmd/server
+	cd services/api && mkdir -p data && go run .
 
 api-test:
 	cd services/api && go test ./...
