@@ -10,5 +10,6 @@
 | `004-security-operations.md` | 安全、阿里云和运维 | accepted |
 | `005-testing-delivery.md` | 测试、CI/CD 和发布 | accepted |
 | `006-collaboration.md` | AI 协作、Git 和 token 控制 | accepted |
+| `007-staging-runbook.md` | staging、备份、回滚和发布后检查 | accepted |
 
 决策规则：实现遇到规格冲突时先停止扩大改动，根代理更新规格中的决策记录，再继续实现。
