@@ -1,5 +1,6 @@
 services:
   inferlab:
+    image: ${INFERLAB_IMAGE:-inferlab:local}
     build:
       context: ..
       dockerfile: infra/Dockerfile

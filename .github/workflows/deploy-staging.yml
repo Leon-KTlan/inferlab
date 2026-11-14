@@ -1,0 +1,82 @@
+name: Deploy staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to build and deploy"
+        required: true
+        default: "staging"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: inferlab-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+      - name: Prepare remote files
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_SSH_USER }}
+          DEPLOY_DIR: ${{ secrets.STAGING_DEPLOY_DIR }}
+          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
+          SESSION_SECRET: ${{ secrets.INFERLAB_SESSION_SECRET }}
+        run: |
+          env_file="$RUNNER_TEMP/inferlab-staging.env"
+          umask 077
+          printf 'INFERLAB_IMAGE=%s\nINFERLAB_SESSION_SECRET=%s\n' "$IMAGE" "$SESSION_SECRET" > "$env_file"
+          ssh "$STAGING_USER@$STAGING_HOST" "mkdir -p '$DEPLOY_DIR/infra'"
+          scp infra/docker-compose.yml infra/deploy-staging.sh "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/infra/"
+          scp "$env_file" "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/.env"
+
+      - name: Login to registry on staging host
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_SSH_USER }}
+          REGISTRY_USER: ${{ secrets.STAGING_REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.STAGING_REGISTRY_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | ssh "$STAGING_USER@$STAGING_HOST" "docker login ghcr.io -u '$REGISTRY_USER' --password-stdin"
+
+      - name: Deploy and health check
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_SSH_USER }}
+          DEPLOY_DIR: ${{ secrets.STAGING_DEPLOY_DIR }}
+        run: ssh "$STAGING_USER@$STAGING_HOST" "chmod 700 '$DEPLOY_DIR/infra/deploy-staging.sh' && DEPLOY_DIR='$DEPLOY_DIR' bash '$DEPLOY_DIR/infra/deploy-staging.sh'"

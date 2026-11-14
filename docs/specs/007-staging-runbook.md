@@ -11,6 +11,8 @@
 - `INFERLAB_SESSION_SECRET` 已通过服务器环境变量或阿里云密钥管理服务注入，长度至少 32 字节。
 - GitHub Actions 的 CI 已通过；本地 `make check`、容器构建和浏览器 smoke 已通过。
 
+GitHub `staging` Environment 需要配置：`STAGING_SSH_HOST`、`STAGING_SSH_USER`、`STAGING_SSH_PRIVATE_KEY`、`STAGING_KNOWN_HOSTS`、`STAGING_DEPLOY_DIR`、`INFERLAB_SESSION_SECRET`、`STAGING_REGISTRY_USER` 和 `STAGING_REGISTRY_TOKEN`。私钥和 token 只存 GitHub Secrets，主机指纹必须人工核对后写入 `STAGING_KNOWN_HOSTS`。
+
 ## 首次部署
 
 ```bash
@@ -19,6 +21,8 @@ git checkout <reviewed-commit>
 export INFERLAB_SESSION_SECRET='<secret-from-secret-manager>'
 docker compose -f infra/docker-compose.yml up -d --build
 ```
+
+有完整 GitHub Environment 配置后，可以在 GitHub Actions 的 `Deploy staging` workflow 中手动输入镜像标签执行。同一 staging 环境使用并发锁，部署脚本会保存旧镜像并在本地健康检查失败时回滚。
 
 反向代理只转发到 `127.0.0.1:8080`，不直接暴露数据库目录。staging 和 production 使用不同的会话密钥、数据卷和域名。
 
