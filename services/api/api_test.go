@@ -132,6 +132,16 @@ func TestAPILifecyclePersistenceIsolation(t *testing.T) {
 	client := clientWithCookies()
 	base := server.URL
 	request(t, client, "GET", base+"/healthz", nil, 200, nil)
+	headerResponse, err := client.Get(base + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	headerResponse.Body.Close()
+	for _, header := range []string{"X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy", "Content-Security-Policy"} {
+		if headerResponse.Header.Get(header) == "" {
+			t.Fatalf("missing security header %s", header)
+		}
+	}
 	var experiment Experiment
 	config := testConfig()
 	request(t, client, "POST", base+"/api/v1/experiments", config, 201, &experiment)
