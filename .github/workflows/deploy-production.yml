@@ -19,6 +19,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate deployment configuration
+        env:
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_KNOWN_HOSTS }}
+          DEPLOY_DIR: ${{ secrets.PRODUCTION_DEPLOY_DIR }}
+          SESSION_SECRET: ${{ secrets.INFERLAB_PRODUCTION_SESSION_SECRET }}
+          REGISTRY_USER: ${{ secrets.PRODUCTION_REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.PRODUCTION_REGISTRY_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          require_value() {
+            local name="$1" value="$2"
+            [[ -n "$value" ]] || { echo "$name is required" >&2; exit 1; }
+          }
+          require_value PRODUCTION_SSH_HOST "$SSH_HOST"
+          require_value PRODUCTION_SSH_USER "$SSH_USER"
+          require_value PRODUCTION_SSH_PRIVATE_KEY "$SSH_PRIVATE_KEY"
+          require_value PRODUCTION_KNOWN_HOSTS "$SSH_KNOWN_HOSTS"
+          require_value PRODUCTION_DEPLOY_DIR "$DEPLOY_DIR"
+          require_value INFERLAB_PRODUCTION_SESSION_SECRET "$SESSION_SECRET"
+          require_value PRODUCTION_REGISTRY_USER "$REGISTRY_USER"
+          require_value PRODUCTION_REGISTRY_TOKEN "$REGISTRY_TOKEN"
+          [[ "$DEPLOY_DIR" == /* ]] || { echo "PRODUCTION_DEPLOY_DIR must be absolute" >&2; exit 1; }
+          [[ ${#SESSION_SECRET} -ge 32 ]] || { echo "INFERLAB_PRODUCTION_SESSION_SECRET must be at least 32 characters" >&2; exit 1; }
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3

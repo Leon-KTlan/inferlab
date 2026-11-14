@@ -24,6 +24,8 @@ docker compose -f infra/docker-compose.yml up -d --build
 
 有完整 GitHub Environment 配置后，合并到 `main` 会自动触发 `Deploy staging`；也可以通过 `workflow_dispatch` 手动运行。工作流按当前 commit 的 SHA 构建镜像，并将构建产物的 digest 写入远端 `.env`，不会使用可变的 `staging` 镜像标签。同一 staging 环境使用并发锁，部署脚本会保存旧镜像为本地 rollback tag，并在健康检查或 Mock smoke 失败时回滚到该镜像。
 
+工作流在构建镜像前校验所有必需 secrets、绝对部署目录和会话密钥长度；配置不完整时直接失败，不发布镜像也不连接服务器。
+
 反向代理只转发到 `127.0.0.1:8080`，不直接暴露数据库目录。staging 和 production 使用不同的会话密钥、数据卷和域名。
 
 ## 发布后检查
