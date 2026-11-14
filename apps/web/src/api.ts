@@ -80,6 +80,25 @@ interface BackendReport extends BackendRun {
   note: string
 }
 
+export interface Comparison {
+  baseline_run_id: string
+  compare_run_id: string
+  comparable: boolean
+  stages: Array<{
+    stage: number
+    concurrency: number
+    baseline: BackendStage
+    compare: BackendStage
+    delta: { p95_e2e_ms: number; error_rate: number; throughput_rps: number }
+  }>
+  overall: {
+    baseline: Pick<BackendRun, 'request_count' | 'completed_count' | 'success_count' | 'error_count' | 'p50_e2e_ms' | 'p95_e2e_ms' | 'error_rate' | 'throughput_rps' | 'duration_seconds'>
+    compare: Pick<BackendRun, 'request_count' | 'completed_count' | 'success_count' | 'error_count' | 'p50_e2e_ms' | 'p95_e2e_ms' | 'error_rate' | 'throughput_rps' | 'duration_seconds'>
+    delta: { p95_e2e_ms: number; error_rate: number; throughput_rps: number }
+  }
+  notes: string[]
+}
+
 export interface Report {
   id?: string
   run_id?: string
@@ -165,4 +184,5 @@ export const api = {
     recommendations: raw.recommendations,
     slo: undefined,
   } satisfies Report)),
+  compareRuns: (compareRunId: string, baselineRunId: string) => request<Comparison>(`/reports/${encodeURIComponent(compareRunId)}/compare?baseline_run_id=${encodeURIComponent(baselineRunId)}`),
 }

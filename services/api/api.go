@@ -69,6 +69,7 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", a.cancelRun)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", a.getEvents)
 	mux.HandleFunc("GET /api/v1/runs/{id}/report", a.getReport)
+	mux.HandleFunc("GET /api/v1/reports/{id}/compare", a.compareReports)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "API route not found")
 	})
