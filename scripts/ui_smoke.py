@@ -1,0 +1,25 @@
+from playwright.sync_api import sync_playwright
+
+
+with sync_playwright() as playwright:
+    browser = playwright.chromium.launch(headless=True)
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    page.goto("http://127.0.0.1:4173", wait_until="networkidle")
+    page.screenshot(path="/tmp/inferlab-home-20261114.png", full_page=True)
+    assert page.get_by_text("InferLab", exact=True).is_visible()
+    assert page.get_by_role("button", name="免费体验 Mock 体检").is_visible()
+    page.get_by_role("button", name="免费体验 Mock 体检").click()
+    assert page.get_by_text("建立一次受控体检", exact=True).is_visible()
+    assert page.get_by_text("MOCK 模式", exact=True).is_visible()
+    assert page.get_by_role("button", name="校验并运行实验").is_visible()
+    page.get_by_label("并发阶梯").fill("1")
+    page.get_by_label("每阶段秒数").fill("1")
+    page.get_by_label("最大请求数").fill("4")
+    page.get_by_label("最大 RPS").fill("10")
+    page.get_by_role("button", name="校验并运行实验").click()
+    page.get_by_text("实验正在被真实执行", exact=True).wait_for(timeout=5000)
+    page.get_by_role("button", name="查看基础报告").wait_for(timeout=10000)
+    page.get_by_role("button", name="查看基础报告").click()
+    page.get_by_text("基础体检报告", exact=True).wait_for(timeout=5000)
+    assert page.get_by_text("阶段指标", exact=True).is_visible()
+    browser.close()

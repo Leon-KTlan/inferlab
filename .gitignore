@@ -1,0 +1,22 @@
+# Go
+services/api/data/
+services/api/*.db
+services/api/*.db-*
+coverage.out
+
+# Node
+node_modules/
+apps/web/dist/
+apps/web/.vite/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
