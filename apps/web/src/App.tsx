@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowRight, CheckCircle2, CircleAlert, Clock3, FileBarChart2, FlaskConical, Gauge, LayoutDashboard, LoaderCircle, PauseCircle, Play, Plus, RotateCcw, ShieldCheck, Square, Terminal, X } from 'lucide-react'
 import { api, ApiError, ExperimentInput, Report, Run, RunStatus } from './api'
+import { validateExperimentForm } from './validation'
 
 type View = 'dashboard' | 'create' | 'run' | 'report'
 const initialForm: ExperimentInput & { authorization: boolean } = { name: 'Mock 体检 · 首次运行', target: { type: 'mock', model: 'mock-llm' }, load: { concurrency_steps: [1, 5, 10, 20], stage_seconds: 20, max_requests: 200, max_rps: 5, timeout_ms: 10000 }, slo: { p95_e2e_ms: 2000, error_rate_max: 0.01 }, authorization: false }
@@ -18,6 +19,8 @@ export default function App() {
   }, [])
   const navigate = (next: View) => { setError(''); setView(next) }
   const begin = async () => {
+    const validationError = validateExperimentForm(form)
+    if (validationError) { setError(validationError); return }
     setError(''); setLoading(true)
     try { const experiment = await api.createExperiment(form); const id = experiment.id; if (!id) throw new Error('服务端未返回实验 ID。'); const next = await api.startRun(id); window.localStorage.setItem('inferlab:last-run', next.id); setRun(next); navigate('run') }
     catch (e) { setError(e instanceof ApiError || e instanceof Error ? e.message : '创建实验失败。') } finally { setLoading(false) }

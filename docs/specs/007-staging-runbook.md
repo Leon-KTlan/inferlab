@@ -22,7 +22,7 @@ export INFERLAB_SESSION_SECRET='<secret-from-secret-manager>'
 docker compose -f infra/docker-compose.yml up -d --build
 ```
 
-有完整 GitHub Environment 配置后，可以在 GitHub Actions 的 `Deploy staging` workflow 中手动输入镜像标签执行。同一 staging 环境使用并发锁，部署脚本会保存旧镜像并在本地健康检查失败时回滚。
+有完整 GitHub Environment 配置后，合并到 `main` 会自动触发 `Deploy staging`；也可以通过 `workflow_dispatch` 手动运行。工作流按当前 commit 的 SHA 构建镜像，并将构建产物的 digest 写入远端 `.env`，不会使用可变的 `staging` 镜像标签。同一 staging 环境使用并发锁，部署脚本会保存旧镜像为本地 rollback tag，并在健康检查或 Mock smoke 失败时回滚到该镜像。
 
 反向代理只转发到 `127.0.0.1:8080`，不直接暴露数据库目录。staging 和 production 使用不同的会话密钥、数据卷和域名。
 
@@ -32,15 +32,15 @@ docker compose -f infra/docker-compose.yml up -d --build
 curl --fail https://<staging-domain>/healthz
 ```
 
-浏览器检查：打开首页，创建小预算 Mock 实验，确认 Run 状态从 queued/running 到终态，报告能读取阶段指标和事件。检查 `docker compose logs --tail=200 inferlab`，确认没有密钥、授权头或 Prompt。
+部署脚本还会在服务器本机执行 Mock API 闭环：创建实验、启动 Run、轮询到 `succeeded`，并读取报告接口。浏览器检查仍需打开首页，确认 Run 状态从 queued/running 到终态，报告能读取阶段指标和事件。检查 `docker compose logs --tail=200 inferlab`，确认没有密钥、授权头或 Prompt。
 
 ## 备份和回滚
 
-1. 发布前停止写入或短暂停服务，复制 SQLite 数据库到带时间戳的备份目录。
-2. 保存当前镜像摘要和 Compose 配置。
-3. 应用失败时恢复上一镜像并重启；数据库迁移必须保持向后兼容。
-4. 恢复数据库前停止服务，保留当前失败数据副本，再替换为备份。
-5. 发布后重复健康检查和 Mock smoke，记录结果。
+1. 发布前部署脚本停止当前容器，在 `$DEPLOY_DIR/backups/` 保存带 UTC 时间戳的 SQLite 主库及存在的 `-wal`/`-shm` 文件。
+2. 保存当前镜像的本地 rollback tag；新镜像使用 commit 对应的 registry digest。
+3. 应用健康检查或 Mock smoke 失败时，先停止失败容器并保存 `failed-<timestamp>.db` 副本，再恢复上一镜像并重启。
+4. 回滚不会自动覆盖数据库；恢复数据库前必须停止服务、保留失败副本，并人工确认要恢复的备份文件。
+5. 发布后记录 `/healthz`、Mock smoke、镜像 digest 和备份路径；数据库迁移必须保持向后兼容。
 
 ## 生产边界
 

@@ -53,6 +53,21 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
+func TestStoreMigrationVersion(t *testing.T) {
+	store, err := openStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.db.Close()
+	var version int
+	if err := store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != currentSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, currentSchemaVersion)
+	}
+}
+
 func TestMetricsRawPercentile(t *testing.T) {
 	samples := make([]Sample, 100)
 	for i := range samples {
