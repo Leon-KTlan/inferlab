@@ -40,7 +40,7 @@ snapshot_database() {
     echo "Cannot snapshot database: container image is unavailable" >&2
     return 1
   fi
-  docker run --rm --volumes-from "$container" -v "$backup_dir:/backup" --entrypoint /bin/sh "$image_id" -c '
+  docker run --rm --user 0:0 --volumes-from "$container" -v "$backup_dir:/backup" --entrypoint /bin/sh "$image_id" -c '
     if [ ! -f /app/data/inferlab.db ]; then exit 2; fi
     cp -p /app/data/inferlab.db "/backup/$(basename "$1")"
     for suffix in -wal -shm; do
