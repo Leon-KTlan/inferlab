@@ -89,7 +89,12 @@ jobs:
             echo "INFERLAB_SESSION_SECRET must not contain newlines" >&2
             exit 1
           fi
-          printf 'INFERLAB_IMAGE=%s\nINFERLAB_SESSION_SECRET=%s\n' "$IMAGE" "$SESSION_SECRET" > "$env_file"
+          compose_quote() {
+            local value="$1"
+            value=${value//\'/\\\'}
+            printf "'%s'" "$value"
+          }
+          printf 'INFERLAB_IMAGE=%s\nINFERLAB_SESSION_SECRET=%s\n' "$IMAGE" "$(compose_quote "$SESSION_SECRET")" > "$env_file"
           ssh "$STAGING_USER@$STAGING_HOST" "mkdir -p '$DEPLOY_DIR/infra'"
           scp infra/docker-compose.yml infra/deploy-environment.sh "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/infra/"
           scp "$env_file" "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/.env"
