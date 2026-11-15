@@ -12,7 +12,7 @@ fi
 INFERLAB_IMAGE="$(awk -F= '$1 == "INFERLAB_IMAGE" { sub(/^[^=]*=/, ""); print; exit }' .env)"
 : "${INFERLAB_IMAGE:?INFERLAB_IMAGE must be set in .env}"
 
-compose=(docker compose -f "$DEPLOY_DIR/infra/docker-compose.yml")
+compose=(docker compose --project-directory "$DEPLOY_DIR" --env-file "$DEPLOY_DIR/.env" -f "$DEPLOY_DIR/infra/docker-compose.yml")
 previous_image=""
 previous_rollback_image=""
 current_container="$("${compose[@]}" ps -q inferlab 2>/dev/null || true)"
