@@ -2,6 +2,11 @@ name: Deploy production
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type DEPLOY_PRODUCTION to confirm the production release
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,7 +19,7 @@ concurrency:
 jobs:
   deploy:
     name: Build and deploy production
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'DEPLOY_PRODUCTION'
     runs-on: ubuntu-latest
     environment: production
     steps:
