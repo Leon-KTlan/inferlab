@@ -15,6 +15,8 @@ import (
 
 type Store struct{ db *sql.DB }
 
+const currentSchemaVersion = 1
+
 func openStore(path string) (*Store, error) {
 	if path != ":memory:" {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -48,18 +50,35 @@ func (s *Store) migrate() error {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 1 {
+	if version > currentSchemaVersion {
 		return fmt.Errorf("unsupported database schema version %d", version)
 	}
-	if version == 1 {
-		return nil
+	for version < currentSchemaVersion {
+		next := version + 1
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		if err := applySchemaMigration(tx, next); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", next)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		version = next
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	_, err = tx.Exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value BLOB NOT NULL);
+	return nil
+}
+
+func applySchemaMigration(tx *sql.Tx, version int) error {
+	switch version {
+	case 1:
+		_, err := tx.Exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value BLOB NOT NULL);
 CREATE TABLE experiments (id TEXT PRIMARY KEY, owner TEXT NOT NULL, data BLOB NOT NULL);
 CREATE INDEX experiments_owner ON experiments(owner);
 CREATE TABLE runs (id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES experiments(id), owner TEXT NOT NULL, status TEXT NOT NULL, data BLOB NOT NULL);
@@ -67,12 +86,11 @@ CREATE INDEX runs_owner ON runs(owner);
 CREATE TABLE samples (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), stage INTEGER NOT NULL, data BLOB NOT NULL);
 CREATE INDEX samples_run ON samples(run_id);
 CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), data BLOB NOT NULL);
-CREATE INDEX events_run ON events(run_id);
-PRAGMA user_version=1;`)
-	if err != nil {
+	CREATE INDEX events_run ON events(run_id);`)
 		return err
+	default:
+		return fmt.Errorf("no migration registered for schema version %d", version)
 	}
-	return tx.Commit()
 }
 
 func (s *Store) localSecret(newSecret []byte) ([]byte, error) {

@@ -1,12 +1,9 @@
 name: Deploy staging
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      image_tag:
-        description: "Image tag to build and deploy"
-        required: true
-        default: "staging"
 
 permissions:
   contents: read
@@ -24,6 +21,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate deployment configuration
+        env:
+          SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
+          DEPLOY_DIR: ${{ secrets.STAGING_DEPLOY_DIR }}
+          SESSION_SECRET: ${{ secrets.INFERLAB_SESSION_SECRET }}
+          REGISTRY_USER: ${{ secrets.STAGING_REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.STAGING_REGISTRY_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          require_value() {
+            local name="$1" value="$2"
+            [[ -n "$value" ]] || { echo "$name is required" >&2; exit 1; }
+          }
+          require_value STAGING_SSH_HOST "$SSH_HOST"
+          require_value STAGING_SSH_USER "$SSH_USER"
+          require_value STAGING_SSH_PRIVATE_KEY "$SSH_PRIVATE_KEY"
+          require_value STAGING_KNOWN_HOSTS "$SSH_KNOWN_HOSTS"
+          require_value STAGING_DEPLOY_DIR "$DEPLOY_DIR"
+          require_value INFERLAB_SESSION_SECRET "$SESSION_SECRET"
+          require_value STAGING_REGISTRY_USER "$REGISTRY_USER"
+          require_value STAGING_REGISTRY_TOKEN "$REGISTRY_TOKEN"
+          [[ "$DEPLOY_DIR" == /* ]] || { echo "STAGING_DEPLOY_DIR must be absolute" >&2; exit 1; }
+          [[ ${#SESSION_SECRET} -ge 32 ]] || { echo "INFERLAB_SESSION_SECRET must be at least 32 characters" >&2; exit 1; }
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -33,12 +57,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and publish image
+        id: build_image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: infra/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
+          tags: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
 
       - name: Configure SSH
         env:
@@ -55,15 +80,25 @@ jobs:
           STAGING_HOST: ${{ secrets.STAGING_SSH_HOST }}
           STAGING_USER: ${{ secrets.STAGING_SSH_USER }}
           DEPLOY_DIR: ${{ secrets.STAGING_DEPLOY_DIR }}
-          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
+          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.build_image.outputs.digest }}
           SESSION_SECRET: ${{ secrets.INFERLAB_SESSION_SECRET }}
         run: |
           env_file="$RUNNER_TEMP/inferlab-staging.env"
           umask 077
-          printf 'INFERLAB_IMAGE=%s\nINFERLAB_SESSION_SECRET=%s\n' "$IMAGE" "$SESSION_SECRET" > "$env_file"
+          if [[ "$SESSION_SECRET" == *$'\n'* || "$SESSION_SECRET" == *$'\r'* ]]; then
+            echo "INFERLAB_SESSION_SECRET must not contain newlines" >&2
+            exit 1
+          fi
+          compose_quote() {
+            local value="$1"
+            value=${value//\'/\\\'}
+            printf "'%s'" "$value"
+          }
+          printf 'INFERLAB_IMAGE=%s\nINFERLAB_SESSION_SECRET=%s\n' "$IMAGE" "$(compose_quote "$SESSION_SECRET")" > "$env_file"
           ssh "$STAGING_USER@$STAGING_HOST" "mkdir -p '$DEPLOY_DIR/infra'"
-          scp infra/docker-compose.yml infra/deploy-staging.sh "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/infra/"
+          scp infra/docker-compose.yml infra/deploy-environment.sh "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/infra/"
           scp "$env_file" "$STAGING_USER@$STAGING_HOST:$DEPLOY_DIR/.env"
+          ssh "$STAGING_USER@$STAGING_HOST" "chmod 600 '$DEPLOY_DIR/.env'"
 
       - name: Login to registry on staging host
         env:
@@ -79,4 +114,11 @@ jobs:
           STAGING_HOST: ${{ secrets.STAGING_SSH_HOST }}
           STAGING_USER: ${{ secrets.STAGING_SSH_USER }}
           DEPLOY_DIR: ${{ secrets.STAGING_DEPLOY_DIR }}
-        run: ssh "$STAGING_USER@$STAGING_HOST" "chmod 700 '$DEPLOY_DIR/infra/deploy-staging.sh' && DEPLOY_DIR='$DEPLOY_DIR' bash '$DEPLOY_DIR/infra/deploy-staging.sh'"
+        run: ssh "$STAGING_USER@$STAGING_HOST" "chmod 700 '$DEPLOY_DIR/infra/deploy-environment.sh' && DEPLOY_DIR='$DEPLOY_DIR' bash '$DEPLOY_DIR/infra/deploy-environment.sh'"
+
+      - name: Logout from registry
+        if: ${{ always() }}
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_SSH_USER }}
+        run: ssh "$STAGING_USER@$STAGING_HOST" 'docker logout ghcr.io >/dev/null 2>&1 || true'

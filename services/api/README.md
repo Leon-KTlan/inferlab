@@ -8,7 +8,7 @@ go run .
 
 默认监听 `127.0.0.1:8080`。`GET /healthz` 检查数据库连通性。
 
-配置环境变量：`LISTEN_ADDR`（监听地址）、`DB_PATH`（默认 `data/inferlab.db`）、`WEB_DIR`（可选，前端构建目录）、`APP_ENV`（local/staging/production）、`SESSION_SECRET`（签名密钥）。生产必须提供至少32字节的 `SESSION_SECRET` 并通过 HTTPS 反向代理访问；local/staging 未配置时在数据库保存随机签名密钥，以保持重启后的匿名会话。
+配置环境变量：`LISTEN_ADDR`（监听地址）、`DB_PATH`（默认 `data/inferlab.db`）、`WEB_DIR`（可选，前端构建目录）、`APP_ENV`（local/staging/production）、`SESSION_SECRET`（签名密钥）。staging 和 production 必须提供至少32字节的 `SESSION_SECRET` 并通过 HTTPS 反向代理访问；local 未配置时在数据库保存随机签名密钥，以保持重启后的匿名会话。
 
 ## API
 
@@ -23,6 +23,7 @@ go run .
 - `POST /api/v1/runs/{id}/cancel` 异步幂等取消，继续轮询确认终态。
 - `GET /api/v1/runs/{id}/events?after=0` 按事件ID查询，单次最多200条。
 - `GET /api/v1/runs/{id}/report` 终态报告，运行中返回409。
+- `GET /api/v1/reports/{candidate_run_id}/compare?baseline_run_id={baseline_run_id}` 比较同一访问者的两次 Mock Run，差值为候选减基线。
 
 ```json
 {
@@ -39,6 +40,10 @@ go run .
 
 P50/P95 用全部完成样本（含错误、超时、取消）的 nearest-rank 计算。总体 P95 根据总体采样计算，不平均阶段 P95；吞吐为完成数/实际窗口秒数，错误率为错误数/完成数。每阶段少于20样本时 SLO 为 `insufficient_data`。原始样本、阶段汇总、事件均保存 SQLite；启动时将未结束运行标记为 `failed/RUN_INTERRUPTED`，不自动续跑或重复发送。
 
+对比要求两个不同 Run 均为 `succeeded`，来源、软件版本、目标、负载及 SLO 快照相同（实验名称可以不同），并且完整执行每个配置阶段、每阶段至少20个完成样本。不可比返回409及错误码 `RUN_NOT_FINISHED`、`RUN_NOT_SUCCEEDED`、`CONFIG_MISMATCH`、`INCOMPLETE_STAGES` 或 `INSUFFICIENT_SAMPLES`；无权访问任一 Run 返回404。参数缺失、重复或比较自身返回400。
+
+成功返回 `baseline_run_id`、`compare_run_id`、`comparable`、`stages`、`overall` 和 `notes`；每个阶段含 `stage`、`concurrency`、`baseline`、`compare` 和 `delta`。`overall` 同样包含两份原始总体指标及差值，不平均阶段 P95。`delta` 中 `p95_e2e_ms` 为毫秒差、`error_rate` 为比例差（不是百分比变化）、`throughput_rps` 为请求/秒差。比较只展示观测差异，不判断优化因果或统计显著性；共享 Mock 服务、运行时段和主机负载均可能影响结果。
+
 ## 验证与恢复
 
 ```bash
@@ -50,4 +55,4 @@ go test -race ./...
 
 数据库采用版本化非破坏迁移，拒绝高于当前支持版本的数据库。当前只有schema v1，无降级迁移。备份应先停止服务后复制 SQLite 文件；恢复时停止服务并替换为兼容备份，同时保留签名密钥。更改签名密钥会使已有匿名会话失效。应用回滚需使用兼容schema v1的版本。
 
-当前仍需 staging 验证；支付、真实 API、本地外部 Runner、登录、报告对比、清理保留策略和分布式任务锁尚未实现。单实例运行，禁止多个进程同时使用同一个数据库执行任务。公开部署前还需反向代理级别的访问限流和资源限制。
+当前仍需 staging 验证；支付、真实 API、本地外部 Runner、登录、清理保留策略和分布式任务锁尚未实现。单实例运行，禁止多个进程同时使用同一个数据库执行任务。公开部署前还需反向代理级别的访问限流和资源限制。
