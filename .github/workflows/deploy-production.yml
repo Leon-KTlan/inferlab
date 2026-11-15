@@ -91,6 +91,7 @@ jobs:
           ssh "$PRODUCTION_USER@$PRODUCTION_HOST" "mkdir -p '$DEPLOY_DIR/infra'"
           scp infra/docker-compose.yml infra/deploy-environment.sh "$PRODUCTION_USER@$PRODUCTION_HOST:$DEPLOY_DIR/infra/"
           scp "$env_file" "$PRODUCTION_USER@$PRODUCTION_HOST:$DEPLOY_DIR/.env"
+          ssh "$PRODUCTION_USER@$PRODUCTION_HOST" "chmod 600 '$DEPLOY_DIR/.env'"
 
       - name: Login to registry on production host
         env:
@@ -107,3 +108,10 @@ jobs:
           PRODUCTION_USER: ${{ secrets.PRODUCTION_SSH_USER }}
           DEPLOY_DIR: ${{ secrets.PRODUCTION_DEPLOY_DIR }}
         run: ssh "$PRODUCTION_USER@$PRODUCTION_HOST" "chmod 700 '$DEPLOY_DIR/infra/deploy-environment.sh' && DEPLOY_DIR='$DEPLOY_DIR' bash '$DEPLOY_DIR/infra/deploy-environment.sh'"
+
+      - name: Logout from registry
+        if: ${{ always() }}
+        env:
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          PRODUCTION_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+        run: ssh "$PRODUCTION_USER@$PRODUCTION_HOST" 'docker logout ghcr.io >/dev/null 2>&1 || true'
