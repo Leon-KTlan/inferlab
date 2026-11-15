@@ -52,7 +52,9 @@ DEPLOY_DIR="$DEPLOY_DIR" bash "$DEPLOY_DIR/infra/deploy-environment.sh"
 `.env` 必须位于部署根目录，并包含 `INFERLAB_IMAGE` 和
 `INFERLAB_SESSION_SECRET`。部署脚本显式指定该文件和 `$DEPLOY_DIR` 为
 Compose 的 project directory，避免 Compose 使用 `infra` 目录作为项目名，
-从而把不同环境错误地共享到同一个数据卷。
+从而把不同环境错误地共享到同一个数据卷。推荐用
+`openssl rand -hex 32` 生成会话密钥；手工写入包含 `$`、`#` 或引号的密钥时，
+必须按 Compose `.env` 的单引号规则转义。GitHub workflow 会自动完成这一步。
 
 有完整 GitHub Environment 配置后，合并到 `main` 会自动触发 `Deploy staging`；也可以通过 `workflow_dispatch` 手动运行。工作流按当前 commit 的 SHA 构建镜像，并将构建产物的 digest 写入远端 `.env`，不会使用可变的 `staging` 镜像标签。同一 staging 环境使用并发锁，部署脚本会保存旧镜像为本地 rollback tag，并在健康检查或 Mock smoke 失败时回滚到该镜像。
 
