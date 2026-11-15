@@ -13,6 +13,31 @@
 
 GitHub `staging` Environment 需要配置：`STAGING_SSH_HOST`、`STAGING_SSH_USER`、`STAGING_SSH_PRIVATE_KEY`、`STAGING_KNOWN_HOSTS`、`STAGING_DEPLOY_DIR`、`INFERLAB_SESSION_SECRET`、`STAGING_REGISTRY_USER` 和 `STAGING_REGISTRY_TOKEN`。私钥和 token 只存 GitHub Secrets，主机指纹必须人工核对后写入 `STAGING_KNOWN_HOSTS`。
 
+### 配置 GitHub Environment
+
+在已登录并指向本仓库的 `gh` CLI 中，可以先创建环境，再逐项从交互输入或安全管道写入 secrets；命令不会把 secret 值写进 shell 历史：
+
+```bash
+repo=Leon-KTlan/inferlab
+gh api --method PUT "repos/$repo/environments/staging" --silent
+gh secret set STAGING_SSH_HOST --env staging
+gh secret set STAGING_SSH_USER --env staging
+gh secret set STAGING_SSH_PRIVATE_KEY --env staging
+gh secret set STAGING_KNOWN_HOSTS --env staging
+gh secret set STAGING_DEPLOY_DIR --env staging
+gh secret set INFERLAB_SESSION_SECRET --env staging
+gh secret set STAGING_REGISTRY_USER --env staging
+gh secret set STAGING_REGISTRY_TOKEN --env staging
+```
+
+配置后只检查 secret 名称，不读取 secret 值：
+
+```bash
+gh api "repos/$repo/environments/staging/secrets" --jq '.secrets[].name'
+```
+
+输出包含上述 8 个名称后，再通过 GitHub Actions 的 `Deploy staging` 手动运行；工作流会在构建前验证绝对部署目录和会话密钥长度。
+
 ## 首次部署
 
 ```bash
