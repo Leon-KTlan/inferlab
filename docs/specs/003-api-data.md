@@ -26,6 +26,8 @@
 | `GET` | `/runs/{id}/events` | 查询运行事件 |
 | `GET` | `/runs/{id}/report` | 读取基础报告 |
 | `GET` | `/reports/{id}/compare` | 比较可比 Run |
+| `POST` | `/experiments/{id}/runner-tasks` | 为 OpenAI-compatible 目标创建无凭证本地 Runner 任务 |
+| `POST` | `/runner-tasks/{id}/result` | 接收本地 Runner 的终态结果 |
 
 后续扩展接口（当前未实现）：
 
@@ -52,4 +54,20 @@ Run：`queued`、`running`、`succeeded`、`failed`、`canceled`。
 - **持久化**：v0.1 使用单实例 SQLite，schema 通过 `PRAGMA user_version` 版本化迁移，启用 WAL 和外键约束。SQLite 到 PostgreSQL 的迁移工具留到多实例或团队功能阶段，不阻塞当前 MVP。
 - **状态读取**：v0.1 使用 `GET /api/v1/runs/{id}` 轮询状态，并使用带游标的 `/api/v1/runs/{id}/events?after=` 读取事件；SSE 等推送协议留到连接规模和部署模型明确后再评估。
 - **支付和权益**：订单、权益及支付宝/VibePay 适配器只在服务端验签、查单和幂等规则实现后启用；当前仓库不提供支付接口，也不产生真实订单。
-- **真实目标**：当前 Runner 只实现 Mock 目标。OpenAI 兼容目标、本地 Runner 和出站网络安全门禁需单独规格和测试证据后再开放。
+- **真实目标**：OpenAI-compatible 目标通过本规格定义的本地 Runner 协议执行；云端 API 不直接发起真实请求。Mock 仍由 API 内置 Runner 执行。
+
+## 本地 Runner 协议（Alpha）
+
+OpenAI-compatible 目标不由 API 进程代发。客户端先创建任务，API 返回不含凭证的
+`RunnerTask` 快照：`task_id`、`run_id`、`experiment_id`、`source_type`、完整
+`config`、绑定 Run 的 `task_token` 和 `result_endpoint`。本地 Runner 从自己的环境变量或密钥管理器读取
+API Key，只在内存中构造 `Authorization: Bearer ...`，并向 `target.endpoint` 的
+`/chat/completions` 发送最小健康请求。Key、Prompt 和响应正文不得写入任务、Run、
+日志或结果。
+
+本地 Runner 使用 `X-InferLab-Runner-Token: task_token` 将 `RunnerResult` POST 到
+`result_endpoint`。结果只能包含终态
+`status`、指标、阶段摘要、时间戳和白名单错误码；服务端按访问者、Run ID、预算和
+错误码校验后幂等持久化。服务端取消 queued/running 的本地任务后，迟到结果被拒绝。
+`POST /experiments/{id}/runs` 对真实目标返回 `LOCAL_RUNNER_REQUIRED`，避免云端
+误发真实请求；Mock 仍使用原有 Runner。

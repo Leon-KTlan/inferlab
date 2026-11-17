@@ -439,3 +439,67 @@ func TestSnapshotAndMetricsConsistency(t *testing.T) {
 		t.Fatal(fmt.Sprint(m))
 	}
 }
+
+func TestLocalRunnerTaskProtocolNeverAcceptsCredentials(t *testing.T) {
+	app, err := newApp(filepath.Join(t.TempDir(), "db"), nil, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	server := httptest.NewServer(app)
+	defer server.Close()
+	client := clientWithCookies()
+	config := testConfig()
+	config.Name = "Authorized local target"
+	config.Target = Target{Type: "openai_compatible", Endpoint: "https://example.com/v1", Model: "test-model"}
+	var experiment Experiment
+	request(t, client, "POST", server.URL+"/api/v1/experiments", config, http.StatusCreated, &experiment)
+	request(t, client, "POST", server.URL+"/api/v1/experiments/"+experiment.ExperimentID+"/runs", nil, http.StatusConflict, nil)
+	var task RunnerTask
+	request(t, client, "POST", server.URL+"/api/v1/experiments/"+experiment.ExperimentID+"/runner-tasks", nil, http.StatusAccepted, &task)
+	if task.RunID == "" || task.Config.Target.Endpoint != config.Target.Endpoint || task.ResultEndpoint == "" {
+		t.Fatalf("incomplete task: %+v", task)
+	}
+	taskJSON, _ := json.Marshal(task)
+	if strings.Contains(string(taskJSON), "api_key") || strings.Contains(string(taskJSON), "Authorization") {
+		t.Fatalf("task contains credential fields: %s", taskJSON)
+	}
+	result := RunnerResult{RunID: task.RunID, Status: "succeeded", Metrics: Metrics{RequestCount: 1, CompletedCount: 1, SuccessCount: 1}, StageSummaries: []StageSummary{}}
+	data, _ := json.Marshal(result)
+	resultRequest, _ := http.NewRequest("POST", server.URL+task.ResultEndpoint, bytes.NewReader(data))
+	resultRequest.Header.Set("Content-Type", "application/json")
+	resultRequest.Header.Set("X-InferLab-Runner-Token", task.TaskToken)
+	resultResponse, err := http.DefaultClient.Do(resultRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultResponse.Body.Close()
+	if resultResponse.StatusCode != http.StatusAccepted {
+		t.Fatalf("runner token result got %d", resultResponse.StatusCode)
+	}
+	var run Run
+	request(t, client, "GET", server.URL+"/api/v1/runs/"+task.RunID, nil, http.StatusOK, &run)
+	if run.Status != "succeeded" || run.SourceType != "openai_compatible" || run.ResultKind != "measured" {
+		t.Fatalf("result was not persisted: %+v", run)
+	}
+}
+
+func TestCanceledLocalRunnerRejectsLateResult(t *testing.T) {
+	app, err := newApp(filepath.Join(t.TempDir(), "db"), nil, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	server := httptest.NewServer(app)
+	defer server.Close()
+	client := clientWithCookies()
+	config := testConfig()
+	config.Target = Target{Type: "openai_compatible", Endpoint: "https://example.com/v1", Model: "test-model"}
+	var experiment Experiment
+	request(t, client, "POST", server.URL+"/api/v1/experiments", config, http.StatusCreated, &experiment)
+	var task RunnerTask
+	request(t, client, "POST", server.URL+"/api/v1/experiments/"+experiment.ExperimentID+"/runner-tasks", nil, http.StatusAccepted, &task)
+	request(t, client, "POST", server.URL+"/api/v1/runs/"+task.RunID+"/cancel", nil, http.StatusAccepted, nil)
+	result := RunnerResult{RunID: task.RunID, Status: "succeeded", Metrics: Metrics{RequestCount: 1, CompletedCount: 1, SuccessCount: 1}}
+	request(t, client, "POST", server.URL+task.ResultEndpoint, result, http.StatusConflict, nil)
+}

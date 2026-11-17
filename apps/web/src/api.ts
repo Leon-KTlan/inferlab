@@ -73,6 +73,15 @@ interface BackendRun {
   config?: { workload?: ExperimentInput['load'] }
 }
 
+interface BackendRunnerTask {
+  task_id: string
+  run_id: string
+  experiment_id: string
+  source_type: 'openai_compatible'
+  config: { workload: ExperimentInput['load'] }
+  result_endpoint: string
+}
+
 interface BackendReport extends BackendRun {
   slo_status: string
   recommendations: string[]
@@ -151,6 +160,18 @@ function normalizeRun(raw: BackendRun, events: Run['events'] = []): Run {
   }
 }
 
+function normalizeRunnerTask(task: BackendRunnerTask): Run {
+  return {
+    id: task.run_id,
+    experiment_id: task.experiment_id,
+    status: 'queued',
+    target_type: task.source_type,
+    total_stages: task.config.workload.concurrency_steps.length,
+    updated_at: new Date().toISOString(),
+    events: [{ message: 'local_runner_task_created' }],
+  }
+}
+
 async function getNormalizedRun(id: string): Promise<Run> {
   const raw = await request<BackendRun>(`/runs/${encodeURIComponent(id)}`)
   let events: Run['events'] = []
@@ -166,6 +187,7 @@ async function getNormalizedRun(id: string): Promise<Run> {
 export const api = {
   createExperiment: (input: ExperimentInput) => request<BackendExperiment>('/experiments', { method: 'POST', body: JSON.stringify(toBackendConfig(input)) }).then(experiment => ({ id: experiment.experiment_id, ...experiment })),
   startRun: (experimentId: string) => request<BackendRun>(`/experiments/${encodeURIComponent(experimentId)}/runs`, { method: 'POST' }).then(raw => normalizeRun(raw)),
+  createRunnerTask: (experimentId: string) => request<BackendRunnerTask>(`/experiments/${encodeURIComponent(experimentId)}/runner-tasks`, { method: 'POST' }).then(normalizeRunnerTask),
   listRuns: () => request<{ runs: BackendRun[] }>('/runs').then(body => body.runs.map(raw => normalizeRun(raw))),
   getRun: (id: string) => getNormalizedRun(id),
   cancelRun: async (id: string) => { await request(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }); return getNormalizedRun(id) },

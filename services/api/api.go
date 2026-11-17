@@ -64,9 +64,11 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 	mux.HandleFunc("GET /api/v1/experiments", a.listExperiments)
 	mux.HandleFunc("GET /api/v1/experiments/{id}", a.getExperiment)
 	mux.HandleFunc("POST /api/v1/experiments/{id}/runs", a.startRun)
+	mux.HandleFunc("POST /api/v1/experiments/{id}/runner-tasks", a.createRunnerTask)
 	mux.HandleFunc("GET /api/v1/runs/{id}", a.getRun)
 	mux.HandleFunc("GET /api/v1/runs", a.listRuns)
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", a.cancelRun)
+	mux.HandleFunc("POST /api/v1/runner-tasks/{id}/result", a.submitRunnerResult)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", a.getEvents)
 	mux.HandleFunc("GET /api/v1/runs/{id}/report", a.getReport)
 	mux.HandleFunc("GET /api/v1/reports/{id}/compare", a.compareReports)
@@ -140,6 +142,12 @@ func (a *App) sign(value string) string {
 	mac := hmac.New(sha256.New, a.secret)
 	mac.Write([]byte(value))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (a *App) runnerToken(runID string) string { return a.sign("runner:" + runID) }
+
+func (a *App) validRunnerToken(runID, token string) bool {
+	return hmac.Equal([]byte(strings.TrimSpace(token)), []byte(a.runnerToken(runID)))
 }
 func (a *App) owner(w http.ResponseWriter, r *http.Request) string {
 	if cookie, err := r.Cookie("inferlab_session"); err == nil {
@@ -236,11 +244,101 @@ func (a *App) startRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 429, "RUN_QUOTA_EXCEEDED", "one active run per visitor and four active runs globally are allowed")
 		return
 	}
+	if errors.Is(err, errLocalRunnerRequired) {
+		writeError(w, http.StatusConflict, "LOCAL_RUNNER_REQUIRED", "OpenAI-compatible targets must run through the local runner task protocol")
+		return
+	}
 	if err != nil {
 		writeError(w, 500, "STORAGE_WRITE_FAILED", "could not start run")
 		return
 	}
 	writeJSON(w, 202, run)
+}
+
+func (a *App) createRunnerTask(w http.ResponseWriter, r *http.Request) {
+	owner := a.owner(w, r)
+	experiment, err := a.store.experiment(owner, r.PathValue("id"))
+	if err != nil {
+		a.readError(w, err)
+		return
+	}
+	if experiment.Target.Type != "openai_compatible" {
+		writeError(w, http.StatusBadRequest, "LOCAL_RUNNER_TARGET_REQUIRED", "runner tasks are only available for OpenAI-compatible targets")
+		return
+	}
+	runs, err := a.store.runs(owner)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "STORAGE_READ_FAILED", "could not read runs")
+		return
+	}
+	for _, item := range runs {
+		if !item.terminal() {
+			writeError(w, http.StatusTooManyRequests, "RUN_QUOTA_EXCEEDED", "one active run per visitor is allowed")
+			return
+		}
+	}
+	runID := newID("run")
+	run := Run{RunID: runID, ExperimentID: experiment.ExperimentID, Status: "queued", SourceType: "openai_compatible", ResultKind: "measured", SoftwareVersion: "0.1.0", Config: experiment.Config, CreatedAt: time.Now().UTC(), StageSummaries: []StageSummary{}}
+	if err := a.store.createRun(owner, run); err != nil {
+		writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not create runner task")
+		return
+	}
+	task := RunnerTask{TaskID: runID, RunID: runID, ExperimentID: experiment.ExperimentID, SourceType: "openai_compatible", Config: experiment.Config, TaskToken: a.runnerToken(runID), ResultEndpoint: "/api/v1/runner-tasks/" + runID + "/result"}
+	writeJSON(w, http.StatusAccepted, task)
+}
+
+func (a *App) submitRunnerResult(w http.ResponseWriter, r *http.Request) {
+	owner := a.owner(w, r)
+	run, err := a.store.run(owner, r.PathValue("id"))
+	if isNotFound(err) && a.validRunnerToken(r.PathValue("id"), r.Header.Get("X-InferLab-Runner-Token")) {
+		owner, err = a.store.runOwner(r.PathValue("id"))
+		if err == nil {
+			run, err = a.store.run(owner, r.PathValue("id"))
+		}
+	}
+	if err != nil {
+		a.readError(w, err)
+		return
+	}
+	if run.SourceType != "openai_compatible" {
+		writeError(w, http.StatusBadRequest, "LOCAL_RUNNER_TARGET_REQUIRED", "run is not owned by a local runner")
+		return
+	}
+	if run.terminal() {
+		writeError(w, http.StatusConflict, "RUN_ALREADY_FINISHED", "runner result was already accepted")
+		return
+	}
+	var result RunnerResult
+	if !decodeJSON(w, r, &result) {
+		return
+	}
+	if result.RunID != run.RunID {
+		writeError(w, http.StatusBadRequest, "RUN_ID_MISMATCH", "runner result does not match the task")
+		return
+	}
+	if err := result.validateFor(run.Config); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_RUNNER_RESULT", err.Error())
+		return
+	}
+	now := time.Now().UTC()
+	if result.StartedAt == nil {
+		result.StartedAt = &now
+	}
+	if result.FinishedAt == nil {
+		result.FinishedAt = &now
+	}
+	run.Status = result.Status
+	run.Metrics = result.Metrics
+	run.CurrentStage = result.CurrentStage
+	run.StageSummaries = result.StageSummaries
+	run.StartedAt = result.StartedAt
+	run.FinishedAt = result.FinishedAt
+	run.ErrorCode = result.ErrorCode
+	if err := a.store.saveRun(run, nil, "local_runner_"+result.Status); err != nil {
+		writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not save runner result")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
 }
 
 func (a *App) getRun(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +366,16 @@ func (a *App) cancelRun(w http.ResponseWriter, r *http.Request) {
 		a.readError(w, err)
 		return
 	}
-	if !run.terminal() {
+	if !run.terminal() && run.SourceType == "openai_compatible" {
+		now := time.Now().UTC()
+		run.Status = "canceled"
+		run.ErrorCode = "RUN_CANCELED"
+		run.FinishedAt = &now
+		if err := a.store.saveRun(run, nil, "run_canceled"); err != nil {
+			writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not cancel run")
+			return
+		}
+	} else if !run.terminal() {
 		a.runner.cancel(owner, run.RunID)
 	}
 	writeJSON(w, 202, map[string]any{"run_id": run.RunID, "status": run.Status, "cancel_requested": !run.terminal()})

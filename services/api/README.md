@@ -1,6 +1,7 @@
 # InferLab API
 
-本地仅开放 Mock，所有指标来自进程内本地 HTTP 模拟服务的真实请求采样。
+Mock 由 API 进程内的本地 HTTP 模拟服务执行。OpenAI-compatible 目标通过无凭证的
+本地 Runner 任务协议执行，API 进程不会接收或保存目标 API Key。
 
 ```bash
 go run .
@@ -18,6 +19,8 @@ go run .
 - `GET /api/v1/experiments` 返回当前访问者最近100个实验：`{experiments:[...]}`。
 - `GET /api/v1/experiments/{id}` 读取配置。
 - `POST /api/v1/experiments/{id}/runs` 启动实验，202 返回 Run。
+- `POST /api/v1/experiments/{id}/runner-tasks` 为 OpenAI-compatible 目标创建本地 Runner 任务；返回的 `RunnerTask` 不含 API Key，`task_token` 只用于该 Run 的结果回传。
+- `POST /api/v1/runner-tasks/{id}/result` 接收本地 Runner 的终态指标和白名单错误码。
 - `GET /api/v1/runs` 返回当前访问者最近100次 Run，用于刷新后恢复工作台。
 - `GET /api/v1/runs/{id}` 读取持久化状态、配置快照和实时指标。
 - `POST /api/v1/runs/{id}/cancel` 异步幂等取消，继续轮询确认终态。
@@ -38,6 +41,19 @@ go run .
 
 阶段截止会取消尚在执行的请求并计入错误；用户取消也会保留已发请求的结果。Mock 每17个请求返回一次503，延迟随实际并发变化；低超时可产生超时样本。Mock不产生真实模型费用，不接受 endpoint、密钥、Prompt、Authorization 等输入字段，也不连接用户提供的外部地址。
 
+OpenAI-compatible endpoint 只能是 HTTPS；API 进程拒绝真实目标的直接运行，需本地 Runner 使用自己的环境变量读取 Key。Runner 会发送 `POST <endpoint>/chat/completions`，并执行并发、RPS、总请求、阶段时长和单请求超时限制。任务响应只包含配置快照、Run ID 和结果回传地址：
+
+```text
+POST /api/v1/experiments/{id}/runner-tasks
+  -> RunnerTask {run_id, config, task_token, result_endpoint}  # 无 API Key
+本地进程读取 OPENAI_API_KEY（不写入任务或日志）并执行任务
+POST /api/v1/runner-tasks/{run_id}/result
+  X-InferLab-Runner-Token: <task_token>
+  -> RunnerResult {status, metrics, stage_summaries, error_code}
+```
+
+错误码只记录 `TARGET_*` 分类、`RUN_CANCELED` 或存储错误，不包含 URL 凭证、授权头、Prompt 或响应正文。
+
 P50/P95 用全部完成样本（含错误、超时、取消）的 nearest-rank 计算。总体 P95 根据总体采样计算，不平均阶段 P95；吞吐为完成数/实际窗口秒数，错误率为错误数/完成数。每阶段少于20样本时 SLO 为 `insufficient_data`。原始样本、阶段汇总、事件均保存 SQLite；启动时将未结束运行标记为 `failed/RUN_INTERRUPTED`，不自动续跑或重复发送。
 
 对比要求两个不同 Run 均为 `succeeded`，来源、软件版本、目标、负载及 SLO 快照相同（实验名称可以不同），并且完整执行每个配置阶段、每阶段至少20个完成样本。不可比返回409及错误码 `RUN_NOT_FINISHED`、`RUN_NOT_SUCCEEDED`、`CONFIG_MISMATCH`、`INCOMPLETE_STAGES` 或 `INSUFFICIENT_SAMPLES`；无权访问任一 Run 返回404。参数缺失、重复或比较自身返回400。
@@ -55,4 +71,4 @@ go test -race ./...
 
 数据库采用版本化非破坏迁移，拒绝高于当前支持版本的数据库。当前只有schema v1，无降级迁移。备份应先停止服务后复制 SQLite 文件；恢复时停止服务并替换为兼容备份，同时保留签名密钥。更改签名密钥会使已有匿名会话失效。应用回滚需使用兼容schema v1的版本。
 
-当前仍需 staging 验证；支付、真实 API、本地外部 Runner、登录、清理保留策略和分布式任务锁尚未实现。单实例运行，禁止多个进程同时使用同一个数据库执行任务。公开部署前还需反向代理级别的访问限流和资源限制。
+当前仍需 staging 验证；支付、登录、清理保留策略和分布式任务锁尚未实现。真实 API 仅支持本地 Runner 协议，单实例运行，禁止多个进程同时使用同一个数据库执行任务。公开部署前还需反向代理级别的访问限流和资源限制。
