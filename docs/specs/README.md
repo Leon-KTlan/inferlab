@@ -12,5 +12,6 @@
 | `006-collaboration.md` | AI 协作、Git 和 token 控制 | accepted |
 | `007-staging-runbook.md` | staging、备份、回滚和发布后检查 | accepted |
 | `008-autonomous-execution.md` | 无人值守执行、模型选择和交接记录 | accepted |
+| `009-local-runner-cli.md` | 本地 Runner CLI、网页交接和安全验收 | accepted |
 
 决策规则：实现遇到规格冲突时先停止扩大改动，根代理更新规格中的决策记录，再继续实现。

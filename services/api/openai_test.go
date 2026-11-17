@@ -16,6 +16,8 @@ func TestEndpointSSRFPolicy(t *testing.T) {
 		"http://example.com/v1",
 		"https://127.0.0.1/v1",
 		"https://169.254.169.254/latest/meta-data",
+		"https://100.100.100.200/latest/meta-data",
+		"https://[::ffff:100.100.100.200]/latest/meta-data",
 		"https://[::1]/v1",
 		"https://example.com/v1?secret=1",
 	} {
@@ -25,6 +27,20 @@ func TestEndpointSSRFPolicy(t *testing.T) {
 	}
 	if _, err := validateEndpoint(context.Background(), "https://127.0.0.1/v1", EndpointPolicy{AllowLoopback: true}); err != nil {
 		t.Fatalf("explicit loopback test policy rejected endpoint: %v", err)
+	}
+}
+
+func TestSharedAddressSpaceBlockedAtConnection(t *testing.T) {
+	for _, address := range []string{"100.64.0.1:443", "100.100.100.200:443", "100.127.255.254:443", "[::ffff:100.100.100.200]:443"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		connection, err := safeDialContext(false)(ctx, "tcp", address)
+		cancel()
+		if connection != nil {
+			connection.Close()
+		}
+		if err == nil || !strings.Contains(err.Error(), ErrSSRFBlocked) {
+			t.Fatalf("shared address was not rejected before dialing: %s", address)
+		}
 	}
 }
 
@@ -48,7 +64,7 @@ func TestOpenAICompatibleAdapterAndErrorClassification(t *testing.T) {
 	if code := adapter.Request(context.Background()); code != "" {
 		t.Fatalf("successful response returned %s", code)
 	}
-	if authorization != "Bearer test-key" || requestBody["model"] != "test-model" {
+	if authorization != "Bearer test-key" || requestBody["model"] != "test-model" || requestBody["max_tokens"] != float64(32) {
 		t.Fatalf("request was not OpenAI-compatible: auth=%q body=%v", authorization, requestBody)
 	}
 

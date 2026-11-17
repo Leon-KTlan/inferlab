@@ -15,6 +15,8 @@ import (
 
 type Store struct{ db *sql.DB }
 
+var errRunAlreadyFinished = errors.New("run is already terminal")
+
 const currentSchemaVersion = 1
 
 func openStore(path string) (*Store, error) {
@@ -221,6 +223,37 @@ func (s *Store) saveRun(r Run, sample *Sample, eventType string) error {
 		if _, err = tx.Exec("INSERT INTO events(run_id,data) VALUES(?,?)", r.RunID, data); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) finishLocalRun(owner string, run Run, eventType string) error {
+	data, err := json.Marshal(run)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec("UPDATE runs SET status=?,data=? WHERE id=? AND owner=? AND status IN ('queued','running')", run.Status, data, run.RunID, owner)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return errRunAlreadyFinished
+	}
+	event, err := json.Marshal(Event{RunID: run.RunID, Type: eventType, Stage: run.CurrentStage, At: time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec("INSERT INTO events(run_id,data) VALUES(?,?)", run.RunID, event); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

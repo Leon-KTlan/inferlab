@@ -464,7 +464,7 @@ func TestLocalRunnerTaskProtocolNeverAcceptsCredentials(t *testing.T) {
 	if strings.Contains(string(taskJSON), "api_key") || strings.Contains(string(taskJSON), "Authorization") {
 		t.Fatalf("task contains credential fields: %s", taskJSON)
 	}
-	result := RunnerResult{RunID: task.RunID, Status: "succeeded", Metrics: Metrics{RequestCount: 1, CompletedCount: 1, SuccessCount: 1}, StageSummaries: []StageSummary{}}
+	result := validLocalResult(task.RunID, config)
 	data, _ := json.Marshal(result)
 	resultRequest, _ := http.NewRequest("POST", server.URL+task.ResultEndpoint, bytes.NewReader(data))
 	resultRequest.Header.Set("Content-Type", "application/json")

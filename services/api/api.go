@@ -334,7 +334,11 @@ func (a *App) submitRunnerResult(w http.ResponseWriter, r *http.Request) {
 	run.StartedAt = result.StartedAt
 	run.FinishedAt = result.FinishedAt
 	run.ErrorCode = result.ErrorCode
-	if err := a.store.saveRun(run, nil, "local_runner_"+result.Status); err != nil {
+	if err := a.store.finishLocalRun(owner, run, "local_runner_"+result.Status); err != nil {
+		if errors.Is(err, errRunAlreadyFinished) {
+			writeError(w, http.StatusConflict, "RUN_ALREADY_FINISHED", "run reached a terminal state before this result was accepted")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not save runner result")
 		return
 	}
@@ -371,9 +375,16 @@ func (a *App) cancelRun(w http.ResponseWriter, r *http.Request) {
 		run.Status = "canceled"
 		run.ErrorCode = "RUN_CANCELED"
 		run.FinishedAt = &now
-		if err := a.store.saveRun(run, nil, "run_canceled"); err != nil {
-			writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not cancel run")
-			return
+		if err := a.store.finishLocalRun(owner, run, "run_canceled"); err != nil {
+			if !errors.Is(err, errRunAlreadyFinished) {
+				writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not cancel run")
+				return
+			}
+			run, err = a.store.run(owner, run.RunID)
+			if err != nil {
+				a.readError(w, err)
+				return
+			}
 		}
 	} else if !run.terminal() {
 		a.runner.cancel(owner, run.RunID)
@@ -443,5 +454,9 @@ func (a *App) getReport(w http.ResponseWriter, r *http.Request) {
 	if len(recommendations) == 0 {
 		recommendations = append(recommendations, "已采样阶段满足设定阈值；请在授权真实目标上复测后评估上线。")
 	}
-	writeJSON(w, 200, Report{Run: run, SLOStatus: status, Recommendations: recommendations, Methodology: "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。", Note: "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"})
+	note := "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"
+	if run.SourceType == "openai_compatible" {
+		note = "本地 Runner 实测：指标由用户本地进程对授权 OpenAI-compatible 目标采样后回传；服务端不保存目标凭证、Prompt 或响应正文，也未独立复测这些数据。"
+	}
+	writeJSON(w, 200, Report{Run: run, SLOStatus: status, Recommendations: recommendations, Methodology: "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。", Note: note})
 }

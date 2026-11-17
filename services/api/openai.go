@@ -77,6 +77,10 @@ func blockedIP(ip net.IP, allowLoopback bool) bool {
 	if ip == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsPrivate() {
 		return true
 	}
+	// Shared address space includes Alibaba Cloud's 100.100.100.200 metadata service.
+	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1]&0xc0 == 64 {
+		return true
+	}
 	if ip.IsLoopback() && !allowLoopback {
 		return true
 	}
@@ -96,13 +100,17 @@ func newOpenAICompatibleAdapter(target Target, apiKey string) (*OpenAICompatible
 }
 
 func newOpenAICompatibleAdapterWithPolicy(target Target, apiKey string, policy EndpointPolicy) (*OpenAICompatibleAdapter, error) {
+	return newOpenAICompatibleAdapterWithContext(context.Background(), target, apiKey, policy)
+}
+
+func newOpenAICompatibleAdapterWithContext(ctx context.Context, target Target, apiKey string, policy EndpointPolicy) (*OpenAICompatibleAdapter, error) {
 	if target.Type != "openai_compatible" {
 		return nil, fmt.Errorf("%s: unsupported target type", ErrEndpointInvalid)
 	}
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, errors.New("TARGET_AUTH_REQUIRED")
 	}
-	endpoint, err := validateEndpoint(context.Background(), target.Endpoint, policy)
+	endpoint, err := validateEndpoint(ctx, target.Endpoint, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +162,9 @@ func safeDialContext(allowLoopback bool) func(context.Context, string, string) (
 
 func (a *OpenAICompatibleAdapter) Request(ctx context.Context) string {
 	body, err := json.Marshal(map[string]any{
-		"model":    a.model,
-		"messages": []map[string]string{{"role": "user", "content": "health check"}},
+		"model":      a.model,
+		"max_tokens": 32,
+		"messages":   []map[string]string{{"role": "user", "content": "health check"}},
 	})
 	if err != nil {
 		return ErrResponseInvalid

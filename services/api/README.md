@@ -54,6 +54,27 @@ POST /api/v1/runner-tasks/{run_id}/result
 
 错误码只记录 `TARGET_*` 分类、`RUN_CANCELED` 或存储错误，不包含 URL 凭证、授权头、Prompt 或响应正文。
 
+## 本地 Runner CLI
+
+先在网页创建 OpenAI-compatible 实验并下载 `task.json`，核对其中的目标、模型和请求预算，然后在本机运行：
+
+```bash
+cd services/api
+go run . runner --task /path/task.json --api-url http://127.0.0.1:8080 --authorize-target
+```
+
+通过当前终端环境注入 `OPENAI_API_KEY`，不把 Key 写入任务文件、参数或报告。`--authorize-target` 必须显式提供；缺失时不发送目标请求或回传请求。下载的任务包含仅用于该 Run 回传的 `task_token`，按凭据保管并在使用后删除任务文件。
+
+`--api-url` 必须由操作者指定为可信 API 的 origin，不允许凭据、路径、query 或 fragment。生产使用 HTTPS 并验证证书；HTTP 仅允许数字回环地址或 `localhost`。回传路径必须精确匹配 `/api/v1/runner-tasks/{run_id}/result`，CLI 校验 task_id 与 run_id 一致，拒绝任意绝对回传地址，并且目标请求、结果回传均禁止重定向。真实目标继续拒绝回环、私网和云元数据；CLI 没有绕过 SSRF 或 TLS 校验的参数。
+
+探测使用固定短输入和 `max_tokens: 32` 输出上限，仍遵守已有并发、RPS、总请求、阶段时长、单请求超时约束。只度量这种固定健康探测工作负载，不支持自定义 Prompt 或金额预算；模型费用取决于提供商。
+
+Ctrl+C/SIGTERM 会停止本地派发并取消在途请求，之后使用独立的最多10秒窗口尝试回传 `canceled`。网页取消目前只改变服务器状态，不能即时停止已经启动的本地 CLI；请在本地终端取消。若服务器已接受网页取消，后续 CLI 回传将被拒绝，CLI 会报告未确认回传。
+
+退出码：`0` 表示执行成功且 API 确认回传；`1` 表示执行失败或回传未确认；`2` 表示参数、授权或任务校验失败；执行期间收到取消信号且回传成功返回 `130`（使用 `go run` 时外层 Go 工具可能统一返回1并显示子进程退出码）。缺失 Key 或全部探测失败会回传白名单错误分类；部分请求失败则保留错误率。回传失败不会自动重跑目标或自动重试，以免重复产生流量和费用。
+
+API 验证回传的有限数值、阶段与总体计数、比例、吞吐、时间窗及 SLO 一致性，但无法仅凭客户端汇总证明采样真实性；真实报告明确标注为本地 Runner 回传数据。
+
 P50/P95 用全部完成样本（含错误、超时、取消）的 nearest-rank 计算。总体 P95 根据总体采样计算，不平均阶段 P95；吞吐为完成数/实际窗口秒数，错误率为错误数/完成数。每阶段少于20样本时 SLO 为 `insufficient_data`。原始样本、阶段汇总、事件均保存 SQLite；启动时将未结束运行标记为 `failed/RUN_INTERRUPTED`，不自动续跑或重复发送。
 
 对比要求两个不同 Run 均为 `succeeded`，来源、软件版本、目标、负载及 SLO 快照相同（实验名称可以不同），并且完整执行每个配置阶段、每阶段至少20个完成样本。不可比返回409及错误码 `RUN_NOT_FINISHED`、`RUN_NOT_SUCCEEDED`、`CONFIG_MISMATCH`、`INCOMPLETE_STAGES` 或 `INSUFFICIENT_SAMPLES`；无权访问任一 Run 返回404。参数缺失、重复或比较自身返回400。
