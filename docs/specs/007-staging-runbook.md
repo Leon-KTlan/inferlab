@@ -13,6 +13,8 @@
 
 GitHub `staging` Environment 需要配置：`STAGING_SSH_HOST`、`STAGING_SSH_USER`、`STAGING_SSH_PRIVATE_KEY`、`STAGING_KNOWN_HOSTS`、`STAGING_DEPLOY_DIR`、`INFERLAB_SESSION_SECRET`、`STAGING_REGISTRY_USER` 和 `STAGING_REGISTRY_TOKEN`。私钥和 token 只存 GitHub Secrets，主机指纹必须人工核对后写入 `STAGING_KNOWN_HOSTS`。
 
+在 GitHub Environment Variables（不是 Secrets）中可选配置 `STAGING_HTTP_PORT`；未配置时使用 `18080`。production 对应变量为 `PRODUCTION_HTTP_PORT`，未配置时使用 `8080`。端口必须是无前导零、`1024` 到 `65535` 的十进制整数，且 staging 与 production 使用不同的 `DEPLOY_DIR`、Compose project 和数据卷。
+
 ### 配置 GitHub Environment
 
 在已登录并指向本仓库的 `gh` CLI 中，可以先创建环境，再逐项从交互输入或安全管道写入 secrets；命令不会把 secret 值写进 shell 历史：
@@ -60,7 +62,11 @@ Compose 的 project directory，避免 Compose 使用 `infra` 目录作为项目
 
 工作流在构建镜像前校验所有必需 secrets、绝对部署目录和会话密钥长度；配置不完整时直接失败，不发布镜像也不连接服务器。
 
-反向代理只转发到 `127.0.0.1:8080`，不直接暴露数据库目录。staging 和 production 使用不同的会话密钥、数据卷和域名。
+反向代理只转发到对应的 `127.0.0.1:<INFERLAB_HTTP_PORT>`，不直接暴露数据库目录。Compose 将宿主机端口限制为 loopback，容器内部仍监听 `0.0.0.0:8080`。staging 和 production 使用不同的会话密钥、端口、数据卷和域名。
+
+### 已部署环境端口迁移
+
+已有环境如果正在使用默认 `8080`，迁移到新端口前先确认新端口未被占用，并在反向代理中准备对应的 `127.0.0.1:<新端口>` upstream。设置 `STAGING_HTTP_PORT` 或 `PRODUCTION_HTTP_PORT` 后执行一次部署；脚本会在新端口执行 health 和 Mock smoke，失败时保留失败数据库副本并用同一新端口启动旧镜像。验证通过后 reload 反向代理并检查公网域名；迁移期间按短暂维护窗口执行，避免代理仍指向旧端口而服务已切换。
 
 ## 发布后检查
 
