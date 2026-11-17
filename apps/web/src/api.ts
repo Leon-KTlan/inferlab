@@ -78,9 +78,15 @@ interface BackendRunnerTask {
   run_id: string
   experiment_id: string
   source_type: 'openai_compatible'
-  config: { workload: ExperimentInput['load'] }
+  config: { target: ExperimentInput['target']; workload: ExperimentInput['load']; slo: ExperimentInput['slo'] }
+  task_token: string
   result_endpoint: string
 }
+
+export type RunnerTask = BackendRunnerTask
+export function serializeRunnerTask(task: RunnerTask): string { return `${JSON.stringify(task, null, 2)}\n` }
+export function buildRunnerCommand(apiUrl: string): string { return `cd services/api && go run . runner --task /path/task.json --api-url ${apiUrl} --authorize-target` }
+export function downloadRunnerTask(task: RunnerTask): void { const blob = new Blob([serializeRunnerTask(task)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'task.json'; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 0) }
 
 interface BackendReport extends BackendRun {
   slo_status: string
@@ -187,7 +193,7 @@ async function getNormalizedRun(id: string): Promise<Run> {
 export const api = {
   createExperiment: (input: ExperimentInput) => request<BackendExperiment>('/experiments', { method: 'POST', body: JSON.stringify(toBackendConfig(input)) }).then(experiment => ({ id: experiment.experiment_id, ...experiment })),
   startRun: (experimentId: string) => request<BackendRun>(`/experiments/${encodeURIComponent(experimentId)}/runs`, { method: 'POST' }).then(raw => normalizeRun(raw)),
-  createRunnerTask: (experimentId: string) => request<BackendRunnerTask>(`/experiments/${encodeURIComponent(experimentId)}/runner-tasks`, { method: 'POST' }).then(normalizeRunnerTask),
+  createRunnerTask: (experimentId: string) => request<BackendRunnerTask>(`/experiments/${encodeURIComponent(experimentId)}/runner-tasks`, { method: 'POST' }).then(task => ({ run: normalizeRunnerTask(task), task })),
   listRuns: () => request<{ runs: BackendRun[] }>('/runs').then(body => body.runs.map(raw => normalizeRun(raw))),
   getRun: (id: string) => getNormalizedRun(id),
   cancelRun: async (id: string) => { await request(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }); return getNormalizedRun(id) },
