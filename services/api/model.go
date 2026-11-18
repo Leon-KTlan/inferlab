@@ -129,12 +129,13 @@ type Run struct {
 	SoftwareVersion string `json:"software_version"`
 	Config          Config `json:"config"`
 	Metrics
-	CurrentStage   int            `json:"current_stage"`
-	StageSummaries []StageSummary `json:"stage_summaries"`
-	CreatedAt      time.Time      `json:"created_at"`
-	StartedAt      *time.Time     `json:"started_at"`
-	FinishedAt     *time.Time     `json:"finished_at"`
-	ErrorCode      string         `json:"error_code,omitempty"`
+	CurrentStage   int                 `json:"current_stage"`
+	StageSummaries []StageSummary      `json:"stage_summaries"`
+	CreatedAt      time.Time           `json:"created_at"`
+	StartedAt      *time.Time          `json:"started_at"`
+	FinishedAt     *time.Time          `json:"finished_at"`
+	ErrorCode      string              `json:"error_code,omitempty"`
+	Diagnostics    []RequestDiagnostic `json:"diagnostics,omitempty"`
 }
 
 func (r Run) terminal() bool {

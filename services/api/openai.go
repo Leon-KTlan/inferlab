@@ -88,11 +88,12 @@ func blockedIP(ip net.IP, allowLoopback bool) bool {
 }
 
 type OpenAICompatibleAdapter struct {
-	endpoint *url.URL
-	model    string
-	apiKey   string
-	client   *http.Client
-	policy   EndpointPolicy
+	endpoint    *url.URL
+	model       string
+	apiKey      string
+	client      *http.Client
+	policy      EndpointPolicy
+	diagnostics diagnosticLog
 }
 
 func newOpenAICompatibleAdapter(target Target, apiKey string) (*OpenAICompatibleAdapter, error) {
@@ -160,7 +161,20 @@ func safeDialContext(allowLoopback bool) func(context.Context, string, string) (
 	}
 }
 
-func (a *OpenAICompatibleAdapter) Request(ctx context.Context) string {
+func (a *OpenAICompatibleAdapter) Request(ctx context.Context) (code string) {
+	started := time.Now()
+	diagnostic := RequestDiagnostic{}
+	defer func() {
+		if code == "" {
+			return
+		}
+		now := time.Now().UTC()
+		diagnostic.ErrorCode = code
+		diagnostic.Count = 1
+		diagnostic.FirstAt, diagnostic.LastAt = now, now
+		diagnostic.LastLatencyMS = float64(time.Since(started)) / float64(time.Millisecond)
+		a.diagnostics.record(diagnostic)
+	}()
 	body, err := json.Marshal(map[string]any{
 		"model":      a.model,
 		"max_tokens": 32,
@@ -186,16 +200,24 @@ func (a *OpenAICompatibleAdapter) Request(ctx context.Context) string {
 		if strings.Contains(err.Error(), ErrSSRFBlocked) {
 			return ErrSSRFBlocked
 		}
+		diagnostic.FailureKind = networkFailure(err)
 		return ErrConnectionFailed
 	}
 	defer response.Body.Close()
+	diagnostic.HTTPStatus = response.StatusCode
+	if response.StatusCode >= 300 {
+		diagnostic.ProviderCode, diagnostic.Parameter = providerDiagnostic(response.Body)
+	}
 	if response.StatusCode >= 300 && response.StatusCode < 400 {
 		return ErrRedirectBlocked
 	}
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
 		return ErrAuthFailed
 	}
-	if response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusRequestTimeout {
+	if response.StatusCode == http.StatusRequestTimeout {
+		return ErrTargetTimeout
+	}
+	if response.StatusCode == http.StatusTooManyRequests {
 		return ErrRateLimited
 	}
 	if response.StatusCode >= 400 && response.StatusCode < 500 {

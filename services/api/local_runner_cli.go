@@ -64,22 +64,36 @@ func runRunnerCLIWithOptions(ctx context.Context, args []string, stdout, stderr 
 	}
 	// The downloaded endpoint never selects an origin or alters the canonical path.
 	apiOrigin.Path = "/api/v1/runner-tasks/" + task.RunID + "/result"
+	fmt.Fprintf(stdout, "%s [INFO] 任务校验通过 run=%s stages=%v stage_seconds=%d max_requests=%d max_rps=%.2f timeout_ms=%d\n", time.Now().Format(time.RFC3339), task.RunID, task.Config.Workload.ConcurrencySteps, task.Config.Workload.StageSeconds, task.Config.Workload.MaxRequests, task.Config.Workload.MaxRPS, task.Config.Workload.TimeoutMS)
 	key := os.Getenv("OPENAI_API_KEY")
 	if task.CredentialAvailable {
+		fmt.Fprintln(stdout, "[INFO] 正在一次性领取临时凭据")
 		key, err = claimLocalCredential(ctx, apiOrigin, task, options.apiTLSConfig)
 		if err != nil {
-			fmt.Fprintln(stderr, "CREDENTIAL_UNAVAILABLE: temporary Key could not be claimed; cancel the old task and create a new one")
+			fmt.Fprintf(stderr, "CREDENTIAL_UNAVAILABLE: %s; cancel the old task and create a new one\n", err)
 			return 1
 		}
+		fmt.Fprintln(stdout, "[INFO] 临时凭据领取成功")
+	} else {
+		fmt.Fprintln(stdout, "[INFO] 使用本地环境变量凭据")
 	}
-	result, executeCode := runValidatedTask(ctx, task, key, options.targetPolicy)
+	fmt.Fprintln(stdout, "[INFO] 开始执行授权目标请求")
+	result, executeCode := runValidatedTask(ctx, task, key, options.targetPolicy, stdout)
+	fmt.Fprintf(stdout, "[INFO] 本地执行结束 status=%s completed=%d errors=%d duration_seconds=%.2f；错误诊断最多记录16种组合\n", result.Status, result.Metrics.CompletedCount, result.Metrics.ErrorCount, result.Metrics.DurationSeconds)
+	for _, diagnostic := range result.Diagnostics {
+		printDiagnostic(stdout, diagnostic, "SUMMARY")
+	}
+	fmt.Fprintln(stdout, "[INFO] 正在回传终态结果")
 	if err := submitLocalResult(ctx, apiOrigin.String(), task.TaskToken, result, options.apiTLSConfig); err != nil {
-		fmt.Fprintln(stderr, "RUNNER_RESULT_SUBMISSION_FAILED: result was not confirmed by the trusted API; do not rerun the target automatically")
+		fmt.Fprintf(stderr, "RUNNER_RESULT_SUBMISSION_FAILED: %s; do not rerun the target automatically\n", err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "Runner result accepted: %s (%d completed, %d errors)\n", result.Status, result.Metrics.CompletedCount, result.Metrics.ErrorCount)
 	if executeCode != "" {
 		fmt.Fprintln(stderr, executeCode)
+		if len(result.Diagnostics) == 0 {
+			fmt.Fprintln(stderr, diagnosticHint(RequestDiagnostic{ErrorCode: executeCode}))
+		}
 	}
 	if ctx.Err() != nil {
 		return 130
@@ -185,7 +199,7 @@ func (a *classifiedAdapter) Request(ctx context.Context) string {
 	return code
 }
 
-func runValidatedTask(ctx context.Context, task RunnerTask, key string, policy EndpointPolicy) (RunnerResult, string) {
+func runValidatedTask(ctx context.Context, task RunnerTask, key string, policy EndpointPolicy, output io.Writer) (RunnerResult, string) {
 	now := time.Now().UTC()
 	failure := func(code string) (RunnerResult, string) {
 		finished := time.Now().UTC()
@@ -205,11 +219,13 @@ func runValidatedTask(ctx context.Context, task RunnerTask, key string, policy E
 		return failure(code)
 	}
 	defer adapter.Close()
+	adapter.diagnostics.onFirst = func(d RequestDiagnostic) { printDiagnostic(output, d, "FIRST_ERROR") }
 	classified := &classifiedAdapter{Adapter: adapter}
 	result, err := executeLocalTaskWithAdapter(runCtx, task, classified)
 	if err != nil {
 		return failure("STORAGE_WRITE_FAILED")
 	}
+	result.Diagnostics = adapter.diagnostics.snapshot()
 	if result.Status == "succeeded" && result.Metrics.SuccessCount == 0 && result.Metrics.ErrorCount > 0 {
 		classified.mu.Lock()
 		code := classified.firstError
@@ -255,11 +271,11 @@ func claimLocalCredential(parent context.Context, origin *url.URL, task RunnerTa
 	defer transport.CloseIdleConnections()
 	response, err := client.Do(request)
 	if err != nil {
-		return "", errors.New("credential request failed")
+		return "", fmt.Errorf("credential request failed (%s)", networkFailure(err))
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", errors.New("credential unavailable")
+		return "", fmt.Errorf("credential API returned HTTP %d (expired, already claimed or rejected)", response.StatusCode)
 	}
 	var credential struct {
 		APIKey string `json:"api_key"`
@@ -289,11 +305,11 @@ func submitLocalResult(parent context.Context, endpoint, token string, result Ru
 	defer transport.CloseIdleConnections()
 	response, err := client.Do(request)
 	if err != nil {
-		return errors.New("result transport failed")
+		return fmt.Errorf("result transport failed (%s)", networkFailure(err))
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusAccepted {
-		return errors.New("result rejected")
+		return fmt.Errorf("result API returned HTTP %d", response.StatusCode)
 	}
 	var accepted struct {
 		RunID  string `json:"run_id"`

@@ -44,6 +44,7 @@ with sync_playwright() as playwright:
     page = context.new_page()
     runner_status = {"value": "queued"}
     runner_calls = {"create": 0}
+    diagnostic_run = {"run_id": "run-diagnostic", "experiment_id": "exp-local", "status": "failed", "source_type": "openai_compatible", "result_kind": "measured", "request_count": 20, "completed_count": 20, "success_count": 0, "error_count": 20, "error_code": "TARGET_HTTP_4XX", "current_stage": 2, "stage_summaries": [], "config": {"workload": {"concurrency_steps": [1, 5, 10, 20]}}, "diagnostics": [{"error_code": "TARGET_HTTP_4XX", "http_status": 400, "provider_code": "unsupported_parameter", "parameter": "max_tokens", "count": 20, "first_at": "2026-11-18T09:33:30Z", "last_at": "2026-11-18T09:33:36Z", "last_latency_ms": 1673.926}]}
 
     def runner_api(route):
         request = route.request
@@ -64,6 +65,10 @@ with sync_playwright() as playwright:
             route.fulfill(json={"run_id": "run-local", "experiment_id": "exp-local", "status": runner_status["value"], "source_type": "openai_compatible", "result_kind": "measured", "request_count": 0, "completed_count": 0, "success_count": 0, "error_count": 0, "p50_e2e_ms": 0, "p95_e2e_ms": 0, "error_rate": 0, "throughput_rps": 0, "duration_seconds": 0, "current_stage": 0, "stage_summaries": [], "config": {"workload": {"concurrency_steps": [1]}}})
         elif request.method == "GET" and request.url.endswith("/runs/run-local/events"):
             route.fulfill(json={"events": []})
+        elif request.method == "GET" and request.url.endswith("/runs/run-diagnostic"):
+            route.fulfill(json=diagnostic_run)
+        elif request.method == "GET" and request.url.endswith("/runs/run-diagnostic/events"):
+            route.fulfill(json={"events": [{"type": "local_runner_failed", "stage": 2, "at": "2026-11-18T09:33:36Z"}]})
         else:
             route.continue_()
 
@@ -125,4 +130,26 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="新建实验").last.click()
     page.get_by_role("button", name="OpenAI 兼容 API").click()
     assert page.get_by_label("API Key", exact=True).input_value() == ""
+
+    # Load a failed, client-reported run without making a real target request.
+    page.evaluate("localStorage.setItem('inferlab:last-run', 'run-diagnostic')")
+    page.reload(wait_until="networkidle")
+    page.get_by_role("button", name="工作台", exact=True).click()
+    page.get_by_role("button").filter(has_text="run-diagnostic").click()
+    diagnostic_panel = page.get_by_role("region", name="错误诊断")
+    assert diagnostic_panel.get_by_text("HTTP 400", exact=True).is_visible()
+    assert diagnostic_panel.get_by_text("20 次", exact=True).is_visible()
+    assert diagnostic_panel.get_by_text("unsupported_parameter", exact=True).is_visible()
+    assert diagnostic_panel.get_by_text("max_tokens", exact=True).is_visible()
+    assert page.get_by_text("本地 Runner 执行失败，结果已接收 · 阶段 2", exact=True).is_visible()
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.screenshot(path="/tmp/inferlab-diagnostics-mobile.png", full_page=True)
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.screenshot(path="/tmp/inferlab-diagnostics-desktop.png", full_page=True)
+    diagnostic_run.pop("diagnostics")
+    page.reload(wait_until="networkidle")
+    page.get_by_role("button", name="工作台", exact=True).click()
+    page.get_by_role("button").filter(has_text="run-diagnostic").click()
+    assert page.get_by_text("此记录没有具体状态码", exact=False).is_visible()
     browser.close()

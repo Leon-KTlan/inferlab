@@ -22,14 +22,15 @@ type RunnerTask struct {
 }
 
 type RunnerResult struct {
-	RunID          string         `json:"run_id"`
-	Status         string         `json:"status"`
-	Metrics        Metrics        `json:"metrics"`
-	CurrentStage   int            `json:"current_stage"`
-	StageSummaries []StageSummary `json:"stage_summaries"`
-	StartedAt      *time.Time     `json:"started_at,omitempty"`
-	FinishedAt     *time.Time     `json:"finished_at,omitempty"`
-	ErrorCode      string         `json:"error_code,omitempty"`
+	RunID          string              `json:"run_id"`
+	Status         string              `json:"status"`
+	Metrics        Metrics             `json:"metrics"`
+	CurrentStage   int                 `json:"current_stage"`
+	StageSummaries []StageSummary      `json:"stage_summaries"`
+	StartedAt      *time.Time          `json:"started_at,omitempty"`
+	FinishedAt     *time.Time          `json:"finished_at,omitempty"`
+	ErrorCode      string              `json:"error_code,omitempty"`
+	Diagnostics    []RequestDiagnostic `json:"diagnostics,omitempty"`
 }
 
 func executeLocalTask(ctx context.Context, task RunnerTask, apiKey string) (RunnerResult, error) {
@@ -90,6 +91,9 @@ func (r RunnerResult) validateFor(config Config) error {
 	}
 	if !validRunnerMetrics(r.Metrics, config.Workload.MaxRequests) {
 		return fmt.Errorf("invalid local runner metrics")
+	}
+	if err := validateDiagnostics(r.Diagnostics, r.Metrics, r.StartedAt, r.FinishedAt); err != nil {
+		return err
 	}
 	if r.StartedAt == nil || r.FinishedAt == nil || r.StartedAt.IsZero() || r.FinishedAt.Before(*r.StartedAt) || r.Metrics.DurationSeconds > r.FinishedAt.Sub(*r.StartedAt).Seconds()+0.05 {
 		return fmt.Errorf("invalid local runner observation window")

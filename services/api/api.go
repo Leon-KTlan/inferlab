@@ -356,6 +356,7 @@ func (a *App) submitRunnerResult(w http.ResponseWriter, r *http.Request) {
 	run.StartedAt = result.StartedAt
 	run.FinishedAt = result.FinishedAt
 	run.ErrorCode = result.ErrorCode
+	run.Diagnostics = result.Diagnostics
 	if err := a.store.finishLocalRun(owner, run, "local_runner_"+result.Status); err != nil {
 		if errors.Is(err, errRunAlreadyFinished) {
 			writeError(w, http.StatusConflict, "RUN_ALREADY_FINISHED", "run reached a terminal state before this result was accepted")

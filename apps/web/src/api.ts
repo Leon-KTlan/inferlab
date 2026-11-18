@@ -1,3 +1,4 @@
+import { eventLabel, type RequestDiagnostic } from './diagnostics'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '')
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
@@ -23,6 +24,7 @@ export interface Run {
   current_stage_p95_ms?: number
   updated_at?: string
   error?: string
+  diagnostics?: RequestDiagnostic[]
   events?: Array<{ timestamp?: string; message: string }>
 }
 
@@ -70,6 +72,7 @@ interface BackendRun {
   started_at?: string
   finished_at?: string
   error_code?: string
+  diagnostics?: RequestDiagnostic[]
   config?: { workload?: ExperimentInput['load'] }
 }
 
@@ -163,6 +166,7 @@ function normalizeRun(raw: BackendRun, events: Run['events'] = []): Run {
     current_stage_p95_ms: current?.p95_e2e_ms,
     updated_at: raw.finished_at ?? raw.started_at ?? raw.created_at,
     error: raw.error_code,
+    diagnostics: raw.diagnostics,
     events,
   }
 }
@@ -175,7 +179,7 @@ function normalizeRunnerTask(task: BackendRunnerTask): Run {
     target_type: task.source_type,
     total_stages: task.config.workload.concurrency_steps.length,
     updated_at: new Date().toISOString(),
-    events: [{ message: 'local_runner_task_created' }],
+    events: [{ message: eventLabel('local_runner_task_created') }],
   }
 }
 
@@ -184,7 +188,7 @@ async function getNormalizedRun(id: string): Promise<Run> {
   let events: Run['events'] = []
   try {
     const eventBody = await request<{ events: Array<{ at: string; type: string; stage: number }> }>(`/runs/${encodeURIComponent(id)}/events`)
-    events = eventBody.events.map(event => ({ timestamp: event.at, message: `${event.type}${event.stage ? ` · 阶段 ${event.stage}` : ''}` }))
+    events = eventBody.events.map(event => ({ timestamp: event.at, message: `${eventLabel(event.type)}${event.stage ? ` · 阶段 ${event.stage}` : ''}` }))
   } catch {
     // Keep the last run snapshot usable when the optional event read fails.
   }

@@ -81,6 +81,13 @@ Ctrl+C/SIGTERM 会停止本地派发并取消在途请求，之后使用独立�
 
 API 验证回传的有限数值、阶段与总体计数、比例、吞吐、时间窗及 SLO 一致性，但无法仅凭客户端汇总证明采样真实性；真实报告明确标注为本地 Runner 回传数据。
 
+Runner 默认输出校验、凭据来源、执行预算、首个错误、错误聚合及回传状态。
+终态 Run 的 `diagnostics` 保存实际 HTTP 状态、白名单上游错误类型/参数、网络
+分类、次数、首次/末次时间与最近耗时；最多16种组合。网页运行页可查看这些字段。
+例如 HTTP 400 / `unsupported_parameter` / `max_tokens` 可定位参数兼容问题。
+不记录原始上游 message、响应正文、请求头、凭据或 Prompt。旧 Run 没有诊断字段，
+需重新小量执行才能采集；旧分类不能用于推断具体 HTTP 状态或失败原因。
+
 P50/P95 用全部完成样本（含错误、超时、取消）的 nearest-rank 计算。总体 P95 根据总体采样计算，不平均阶段 P95；吞吐为完成数/实际窗口秒数，错误率为错误数/完成数。每阶段少于20样本时 SLO 为 `insufficient_data`。原始样本、阶段汇总、事件均保存 SQLite；启动时将未结束运行标记为 `failed/RUN_INTERRUPTED`，不自动续跑或重复发送。
 
 对比要求两个不同 Run 均为 `succeeded`，来源、软件版本、目标、负载及 SLO 快照相同（实验名称可以不同），并且完整执行每个配置阶段、每阶段至少20个完成样本。不可比返回409及错误码 `RUN_NOT_FINISHED`、`RUN_NOT_SUCCEEDED`、`CONFIG_MISMATCH`、`INCOMPLETE_STAGES` 或 `INSUFFICIENT_SAMPLES`；无权访问任一 Run 返回404。参数缺失、重复或比较自身返回400。
