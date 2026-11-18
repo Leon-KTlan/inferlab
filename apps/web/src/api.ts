@@ -140,7 +140,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   try { response = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...options, headers: { 'Content-Type': 'application/json', ...options?.headers } }) }
   catch { throw new ApiError('无法连接 API，请确认服务已启动。', 0) }
   const body = await response.json().catch(() => null)
-  if (!response.ok) throw new ApiError(body?.error?.message ?? '请求失败，请稍后重试。', response.status, body?.error?.code)
+  if (!response.ok) {
+    const quota = body?.error?.quota as Quota | undefined
+    const message = quota ? `每日预留请求额度不足：剩余 ${quota.remaining}，${new Date(quota.reset_at).toLocaleString('zh-CN')} 重置。` : body?.error?.code === 'LOGIN_REQUIRED' ? '请先登录，再启动实验。' : body?.error?.code === 'AUTH_RATE_LIMITED' ? '尝试次数过多，请在十分钟后重试。' : body?.error?.message
+    throw new ApiError(message ?? '请求失败，请稍后重试。', response.status, body?.error?.code)
+  }
   return body as T
 }
 
@@ -195,7 +199,18 @@ async function getNormalizedRun(id: string): Promise<Run> {
   return normalizeRun(raw, events)
 }
 
+let identityRequest: Promise<Identity> | undefined
 export const api = {
+  me: () => identityRequest ??= request<Identity>('/auth/me').finally(() => { identityRequest = undefined }),
+  register: (input: { username: string; password: string; invite: string; claim_anonymous: boolean }) => request('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
+  login: (input: { username: string; password: string }) => request('/auth/login', { method: 'POST', body: JSON.stringify(input) }),
+  logout: () => request('/auth/logout', { method: 'POST', body: '{}' }),
+  listExperiments: () => request<{ experiments: BackendExperiment[] }>('/experiments').then(body => body.experiments),
+  deleteRun: (id: string) => request(`/runs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteExperiment: (id: string) => request(`/experiments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  share: (id: string) => request<{ token: string; path: string }>(`/runs/${encodeURIComponent(id)}/share`, { method: 'POST' }),
+  revokeShare: (id: string) => request(`/runs/${encodeURIComponent(id)}/share`, { method: 'DELETE' }),
+  publicReport: (token: string) => request<PublicReport>(`/shares/${encodeURIComponent(token)}`),
   createExperiment: (input: ExperimentInput) => request<BackendExperiment>('/experiments', { method: 'POST', body: JSON.stringify(toBackendConfig(input)) }).then(experiment => ({ id: experiment.experiment_id, ...experiment })),
   startRun: (experimentId: string) => request<BackendRun>(`/experiments/${encodeURIComponent(experimentId)}/runs`, { method: 'POST' }).then(raw => normalizeRun(raw)),
   createRunnerTask: (experimentId: string, apiKey = '') => request<BackendRunnerTask>(`/experiments/${encodeURIComponent(experimentId)}/runner-tasks`, { method: 'POST', body: JSON.stringify({ api_key: apiKey }) }).then(task => ({ run: normalizeRunnerTask(task), task })),
@@ -212,10 +227,22 @@ export const api = {
       p95_e2e_ms: raw.p95_e2e_ms,
       throughput: raw.throughput_rps,
     },
-    stages: raw.stage_summaries.map(stage => ({ ...stage, error_rate: stage.error_rate * 100, slo_met: stage.slo_status === 'pass' })),
+    stages: raw.stage_summaries.map(stage => ({ ...stage, error_rate: stage.error_rate * 100, throughput: stage.throughput_rps, slo_met: stage.slo_status === 'pass' })),
     conclusion: raw.slo_status === 'pass' ? '当前采样阶段满足设定 SLO。请在授权的真实目标上复测后再做上线判断。' : raw.slo_status === 'fail' ? '至少一个阶段超出设定 SLO，需要复测并定位瓶颈。' : '当前样本不足以形成容量结论。',
     recommendations: raw.recommendations,
     slo: undefined,
   } satisfies Report)),
   compareRuns: (compareRunId: string, baselineRunId: string) => request<Comparison>(`/reports/${encodeURIComponent(compareRunId)}/compare?baseline_run_id=${encodeURIComponent(baselineRunId)}`),
+}
+
+export interface Quota { limit: number; reserved: number; remaining: number; reset_at: string }
+export interface Identity { username: string; authenticated: boolean; login_required: boolean; registration_open: boolean; quota: Quota }
+export interface PublicReport {
+  status: RunStatus
+  source_type: 'mock' | 'openai_compatible'
+  result_kind: string
+  metrics: Pick<BackendRun, 'request_count' | 'completed_count' | 'success_count' | 'error_count' | 'p50_e2e_ms' | 'p95_e2e_ms' | 'error_rate' | 'throughput_rps' | 'duration_seconds'>
+  stages: BackendStage[]
+  slo: ExperimentInput['slo']
+  slo_status: string
 }

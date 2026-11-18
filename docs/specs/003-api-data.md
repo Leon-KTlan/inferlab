@@ -28,6 +28,11 @@
 | `GET` | `/reports/{id}/compare` | 比较可比 Run |
 | `POST` | `/experiments/{id}/runner-tasks` | 为 OpenAI-compatible 目标创建无凭证本地 Runner 任务 |
 | `POST` | `/runner-tasks/{id}/result` | 接收本地 Runner 的终态结果 |
+| `GET` | `/auth/me` | 当前会话、邀请状态和 UTC 日预留额度 |
+| `POST` | `/auth/register`、`/auth/login`、`/auth/logout` | 邀请账户及可撤销会话 |
+| `POST` / `DELETE` | `/runs/{id}/share` | 创建/获取或撤销终态脱敏分享 |
+| `GET` | `/shares/{token}` | 无账号只读数值报告 |
+| `DELETE` | `/runs/{id}`、`/experiments/{id}` | 删除本人终态数据及关联行 |
 
 后续扩展接口（当前未实现）：
 
@@ -50,7 +55,7 @@ Run：`queued`、`running`、`succeeded`、`failed`、`canceled`。
 
 ## v0.1 决策记录
 
-- **访问身份**：v0.1 使用 HttpOnly、SameSite=Strict 的签名匿名 Cookie 识别访问者；不提供账号、找回会话或跨访问者共享。所有实验、Run 和报告查询都按访问者隔离。
+- **访问身份**：邀请测试已用 v2 服务端有期限、可撤销会话替代签名匿名 Cookie，保留一次旧 cookie 迁入。账户、认领、配额和分享完整约束以 `010-invite-testing.md` 为准；所有私有数据均按 owner 隔离，公共分享只走独立 DTO。
 - **持久化**：v0.1 使用单实例 SQLite，schema 通过 `PRAGMA user_version` 版本化迁移，启用 WAL 和外键约束。SQLite 到 PostgreSQL 的迁移工具留到多实例或团队功能阶段，不阻塞当前 MVP。
 - **状态读取**：v0.1 使用 `GET /api/v1/runs/{id}` 轮询状态，并使用带游标的 `/api/v1/runs/{id}/events?after=` 读取事件；SSE 等推送协议留到连接规模和部署模型明确后再评估。
 - **支付和权益**：订单、权益及支付宝/VibePay 适配器只在服务端验签、查单和幂等规则实现后启用；当前仓库不提供支付接口，也不产生真实订单。

@@ -10,11 +10,20 @@ go run .
 
 默认监听 `127.0.0.1:8080`。`GET /healthz` 检查数据库连通性。
 
-配置环境变量：`LISTEN_ADDR`（监听地址）、`DB_PATH`（默认 `data/inferlab.db`）、`WEB_DIR`（可选，前端构建目录）、`APP_ENV`（local/staging/production）、`SESSION_SECRET`（签名密钥）。staging 和 production 必须提供至少32字节的 `SESSION_SECRET` 并通过 HTTPS 反向代理访问；local 未配置时在数据库保存随机签名密钥，以保持重启后的匿名会话。
+配置环境变量：`LISTEN_ADDR`（监听地址）、`DB_PATH`（默认 `data/inferlab.db`）、`WEB_DIR`（可选，前端构建目录）、`APP_ENV`（local/staging/production）、`SESSION_SECRET`（任务签名/旧 cookie 迁移密钥）、`INVITE_CODE`（未配置关闭注册）、`DAILY_REQUEST_LIMIT`（默认10000，范围1至1000000000）。staging 和 production 必须提供至少32字节的 `SESSION_SECRET` 并通过 HTTPS 反向代理访问；local 未配置时在数据库保存随机签名密钥。密钥和邀请值只通过运行环境注入。
 
 ## API
 
-浏览器采用 HttpOnly、SameSite=Strict 签名 cookie 隔离匿名访问者，API 为同源访问，不开放 CORS。丢失 cookie 将无法读取原实验；当前没有账号、会话找回或共享报告。
+浏览器采用七天有效、可撤销的 HttpOnly、SameSite=Strict 服务端会话，数据库只存 token SHA-256；secure 环境添加 Secure。v1 签名匿名 cookie 可一次迁入有限期会话，失效后不可复活。所有私有查询/变更按 owner 隔离，无权限为404。API 同源且不开放 CORS，代理须保留 Host；不信任转发来源头，代理下 IP 限流桶可能共享，须 staging 验证。匿名 cookie 丢失后没有找回方式。
+
+- `GET /api/v1/auth/me` 当前用户名、登录/注册状态和 UTC 日额度 `{limit,reserved,remaining,reset_at}`。
+- `POST /api/v1/auth/register` JSON `{username,password,invite,claim_anonymous}`；ASCII 用户名3–32位规范为小写、bcrypt密码12–72字节。未配置邀请则403；重复用户名409。可原子认领一次当前匿名数据及额度，保留活跃任务归属。
+- `POST /api/v1/auth/login` JSON `{username,password}`；登录不合并匿名数据，轮换 cookie 并撤销旧会话。匿名数据保留在原身份中，原匿名会话失效，切换前应保存报告。
+- `POST /api/v1/auth/logout` JSON `{}`；撤销会话。所有身份写接口必须 application/json，拒绝 text/plain 和异源 Origin。
+- 注册/登录在 KDF 前限流，按实际连接 IP、登录用户名十分钟最多五次尝试（包括成功），持久化桶上限4096，满时关闭新桶。429为 `AUTH_RATE_LIMITED`。
+- `POST /api/v1/runs/{id}/share` 仅终态，201返回 `{token,path}`；重复获取同一未撤销链接。
+- `DELETE /api/v1/runs/{id}/share` 在同一事务验证 owner 并撤销；`GET /api/v1/shares/{token}` 无需登录，仅返回公开 DTO 数值指标和 SLO。撤销/删除后404。
+- `DELETE /api/v1/runs/{id}`、`DELETE /api/v1/experiments/{id}` 删除本人终态记录及关联分享、样本、事件；存在活跃 Run 返回409 `RUN_ACTIVE`。
 
 - `POST /api/v1/experiments` 创建配置（见下例）。
 - `GET /api/v1/experiments` 返回当前访问者最近100个实验：`{experiments:[...]}`。
@@ -40,6 +49,8 @@ go run .
 ```
 
 并发严格递增且最大32，最多8阶段；每阶段1至30秒、总阶段时间最多120秒；全局请求预算1至1000、RPS为1至50、请求超时10至10000ms。同时最多4个 Run，每个访问者最多1个活跃 Run。请求预算可能在较早阶段耗尽，报告会标明未覆盖阶段。
+
+staging/production 任务创建需账户登录（401 `LOGIN_REQUIRED`），local 可匿名。Runner 领取/提交端点继续接受任务 token，不受登录门禁影响。创建 Run 时事务预留 `max_requests`，Mock/本地任务共用UTC日额度；取消/失败/删除不退还，重启不归零。耗尽返回429 `{error:{code:"DAILY_REQUEST_QUOTA_EXCEEDED",message:"...",quota:{limit,reserved,remaining,reset_at}}}`。这是平台任务预留限制，不是真实费用，也不能约束额外本地请求。
 
 阶段截止会取消尚在执行的请求并计入错误；用户取消也会保留已发请求的结果。Mock 每17个请求返回一次503，延迟随实际并发变化；低超时可产生超时样本。Mock不产生真实模型费用，不接受 endpoint、密钥、Prompt、Authorization 等输入字段，也不连接用户提供的外部地址。
 
@@ -103,6 +114,8 @@ go test ./...
 go test -race ./...
 ```
 
-数据库采用版本化非破坏迁移，拒绝高于当前支持版本的数据库。当前只有schema v1，无降级迁移。备份应先停止服务后复制 SQLite 文件；恢复时停止服务并替换为兼容备份，同时保留签名密钥。更改签名密钥会使已有匿名会话失效。应用回滚需使用兼容schema v1的版本。
+数据库采用版本化非破坏迁移，拒绝高于当前支持版本的数据库。当前 schema v2，增加账户、会话、认领、限流、额度和分享表，无降级迁移。部署前停止写入并用 SQLite backup 获取完整备份，保留运行环境密钥。回滚 v1 二进制必须同时恢复 v1 备份，禁止直接修改 user_version。迁移与重复启动不删除旧记录；v1 没有每日额度账本，预留额度从 v2 创建任务开始记录。
 
-当前仍需 staging 验证；支付、登录、清理保留策略和分布式任务锁尚未实现。真实 API 仅支持本地 Runner 协议，单实例运行，禁止多个进程同时使用同一个数据库执行任务。公开部署前还需反向代理级别的访问限流和资源限制。
+当前仍需 staging 验证；支付、正式监控、密码重置、全量数据保留策略和分布式任务锁尚未实现。过期限流桶在身份尝试时有限清理，会话在身份尝试及插入时有限清理。真实 API 仅支持本地 Runner 协议，单实例运行，禁止多个进程同时使用同一个数据库执行任务。公开部署前还需反向代理级别的访问限流和资源限制。实施/测试证据见 `docs/tasks/invite-testing/`。
+
+会话插入事务另清理最多128条过期/已撤销记录；匿名会话上限4096，总会话上限8192，满额时新会话503，已有有效会话继续工作。无 cookie 的无效登录/注册和429不写 sessions；任务 token 请求也不创建匿名会话。容量不代表可公开运营的流量保障，staging 须实测资源与代理限制。

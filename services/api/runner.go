@@ -143,8 +143,11 @@ func (r *Runner) startWithContext(parent context.Context, owner string, experime
 func (r *Runner) cancel(owner, id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if active, ok := r.active[id]; ok && active.owner == owner {
-		active.cancel()
+	if active, ok := r.active[id]; ok {
+		current, err := r.store.runOwner(id)
+		if err == nil && current == owner {
+			active.cancel()
+		}
 	}
 }
 func (r *Runner) Close() {
