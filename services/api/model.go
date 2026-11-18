@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"math"
 	"sort"
@@ -9,8 +10,9 @@ import (
 )
 
 type Target struct {
-	Type  string `json:"type"`
-	Model string `json:"model"`
+	Type     string `json:"type"`
+	Endpoint string `json:"endpoint,omitempty"`
+	Model    string `json:"model"`
 }
 
 type Workload struct {
@@ -34,15 +36,32 @@ type Config struct {
 }
 
 func (c *Config) validate() error {
+	return c.validateWithEndpointPolicy(EndpointPolicy{})
+}
+
+func (c *Config) validateWithEndpointPolicy(policy EndpointPolicy) error {
 	c.Name = strings.TrimSpace(c.Name)
 	if c.Name == "" || len(c.Name) > 120 {
 		return errors.New("name must contain 1 to 120 bytes")
 	}
-	if c.Target.Type != "mock" {
-		return errors.New("only mock targets are enabled")
+	switch c.Target.Type {
+	case "mock":
+		if c.Target.Endpoint != "" {
+			return errors.New("mock targets must not provide an endpoint")
+		}
+	case "openai_compatible":
+		if _, err := validateEndpoint(context.Background(), c.Target.Endpoint, policy); err != nil {
+			return err
+		}
+	default:
+		return errors.New("target type must be mock or openai_compatible")
 	}
 	if c.Target.Model == "" {
-		c.Target.Model = "mock-llm"
+		if c.Target.Type == "mock" {
+			c.Target.Model = "mock-llm"
+		} else {
+			return errors.New("model is required for openai_compatible targets")
+		}
 	}
 	if len(c.Target.Model) > 120 {
 		return errors.New("model must be at most 120 bytes")
@@ -110,12 +129,13 @@ type Run struct {
 	SoftwareVersion string `json:"software_version"`
 	Config          Config `json:"config"`
 	Metrics
-	CurrentStage   int            `json:"current_stage"`
-	StageSummaries []StageSummary `json:"stage_summaries"`
-	CreatedAt      time.Time      `json:"created_at"`
-	StartedAt      *time.Time     `json:"started_at"`
-	FinishedAt     *time.Time     `json:"finished_at"`
-	ErrorCode      string         `json:"error_code,omitempty"`
+	CurrentStage   int                 `json:"current_stage"`
+	StageSummaries []StageSummary      `json:"stage_summaries"`
+	CreatedAt      time.Time           `json:"created_at"`
+	StartedAt      *time.Time          `json:"started_at"`
+	FinishedAt     *time.Time          `json:"finished_at"`
+	ErrorCode      string              `json:"error_code,omitempty"`
+	Diagnostics    []RequestDiagnostic `json:"diagnostics,omitempty"`
 }
 
 func (r Run) terminal() bool {

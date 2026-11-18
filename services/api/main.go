@@ -18,7 +18,15 @@ func env(name, fallback string) string {
 }
 
 func main() {
-	app, err := newApp(env("DB_PATH", "data/inferlab.db"), []byte(os.Getenv("SESSION_SECRET")), env("APP_ENV", "local") == "production", os.Getenv("WEB_DIR"))
+	if len(os.Args) > 1 && os.Args[1] == "runner" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		code := runRunnerCLI(ctx, os.Args[2:], os.Stdout, os.Stderr)
+		stop()
+		os.Exit(code)
+	}
+	appEnv := env("APP_ENV", "local")
+	secureEnv := appEnv == "staging" || appEnv == "production"
+	app, err := newApp(env("DB_PATH", "data/inferlab.db"), []byte(os.Getenv("SESSION_SECRET")), secureEnv, os.Getenv("WEB_DIR"))
 	if err != nil {
 		log.Fatal("API initialization failed: ", err)
 	}

@@ -18,12 +18,13 @@ import (
 )
 
 type App struct {
-	store   *Store
-	runner  *Runner
-	mock    *MockAdapter
-	secret  []byte
-	secure  bool
-	handler http.Handler
+	store       *Store
+	runner      *Runner
+	mock        *MockAdapter
+	secret      []byte
+	secure      bool
+	handler     http.Handler
+	credentials runnerCredentials
 }
 
 func newID(prefix string) string {
@@ -34,9 +35,9 @@ func newID(prefix string) string {
 	return prefix + "_" + base64.RawURLEncoding.EncodeToString(b)
 }
 
-func newApp(databasePath string, secret []byte, production bool, webDir string) (*App, error) {
-	if production && len(secret) < 32 {
-		return nil, errors.New("SESSION_SECRET must contain at least 32 bytes in production")
+func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (*App, error) {
+	if secureEnv && len(secret) < 32 {
+		return nil, errors.New("SESSION_SECRET must contain at least 32 bytes in staging or production")
 	}
 	store, err := openStore(databasePath)
 	if err != nil {
@@ -56,7 +57,7 @@ func newApp(databasePath string, secret []byte, production bool, webDir string) 
 	if err != nil {
 		return cleanup(err)
 	}
-	a := &App{store: store, runner: newRunner(store, mock), mock: mock, secret: secret, secure: production}
+	a := &App{store: store, runner: newRunner(store, mock), mock: mock, secret: secret, secure: secureEnv}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /api/v1/healthz", a.health)
@@ -64,11 +65,15 @@ func newApp(databasePath string, secret []byte, production bool, webDir string) 
 	mux.HandleFunc("GET /api/v1/experiments", a.listExperiments)
 	mux.HandleFunc("GET /api/v1/experiments/{id}", a.getExperiment)
 	mux.HandleFunc("POST /api/v1/experiments/{id}/runs", a.startRun)
+	mux.HandleFunc("POST /api/v1/experiments/{id}/runner-tasks", a.createRunnerTask)
 	mux.HandleFunc("GET /api/v1/runs/{id}", a.getRun)
 	mux.HandleFunc("GET /api/v1/runs", a.listRuns)
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", a.cancelRun)
+	mux.HandleFunc("POST /api/v1/runner-tasks/{id}/result", a.submitRunnerResult)
+	mux.HandleFunc("POST /api/v1/runner-tasks/{id}/credential", a.claimRunnerCredential)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", a.getEvents)
 	mux.HandleFunc("GET /api/v1/runs/{id}/report", a.getReport)
+	mux.HandleFunc("GET /api/v1/reports/{id}/compare", a.compareReports)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "API route not found")
 	})
@@ -99,7 +104,7 @@ func newApp(databasePath string, secret []byte, production bool, webDir string) 
 }
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.handler.ServeHTTP(w, r) }
-func (a *App) Close()                                           { a.runner.Close(); a.mock.Close(); a.store.db.Close() }
+func (a *App) Close()                                           { a.runner.Close(); a.credentials.close(); a.mock.Close(); a.store.db.Close() }
 
 func spaHandler(dir string) http.Handler {
 	files := http.FileServer(http.Dir(dir))
@@ -139,6 +144,12 @@ func (a *App) sign(value string) string {
 	mac := hmac.New(sha256.New, a.secret)
 	mac.Write([]byte(value))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (a *App) runnerToken(runID string) string { return a.sign("runner:" + runID) }
+
+func (a *App) validRunnerToken(runID, token string) bool {
+	return hmac.Equal([]byte(strings.TrimSpace(token)), []byte(a.runnerToken(runID)))
 }
 func (a *App) owner(w http.ResponseWriter, r *http.Request) string {
 	if cookie, err := r.Cookie("inferlab_session"); err == nil {
@@ -235,11 +246,127 @@ func (a *App) startRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 429, "RUN_QUOTA_EXCEEDED", "one active run per visitor and four active runs globally are allowed")
 		return
 	}
+	if errors.Is(err, errLocalRunnerRequired) {
+		writeError(w, http.StatusConflict, "LOCAL_RUNNER_REQUIRED", "OpenAI-compatible targets must run through the local runner task protocol")
+		return
+	}
 	if err != nil {
 		writeError(w, 500, "STORAGE_WRITE_FAILED", "could not start run")
 		return
 	}
 	writeJSON(w, 202, run)
+}
+
+func (a *App) createRunnerTask(w http.ResponseWriter, r *http.Request) {
+	owner := a.owner(w, r)
+	experiment, err := a.store.experiment(owner, r.PathValue("id"))
+	if err != nil {
+		a.readError(w, err)
+		return
+	}
+	if experiment.Target.Type != "openai_compatible" {
+		writeError(w, http.StatusBadRequest, "LOCAL_RUNNER_TARGET_REQUIRED", "runner tasks are only available for OpenAI-compatible targets")
+		return
+	}
+	var input struct {
+		APIKey string `json:"api_key"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+	}
+	if len(input.APIKey) > 4096 || strings.ContainsAny(input.APIKey, "\r\n") {
+		writeError(w, 400, "INVALID_API_KEY", "API Key is invalid")
+		return
+	}
+	runs, err := a.store.runs(owner)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "STORAGE_READ_FAILED", "could not read runs")
+		return
+	}
+	for _, item := range runs {
+		if !item.terminal() {
+			writeError(w, http.StatusTooManyRequests, "RUN_QUOTA_EXCEEDED", "one active run per visitor is allowed")
+			return
+		}
+	}
+	runID := newID("run")
+	if input.APIKey != "" {
+		if !a.credentials.put(runID, input.APIKey) {
+			writeError(w, 429, "CREDENTIAL_QUOTA_EXCEEDED", "temporary credential capacity reached")
+			return
+		}
+	}
+	run := Run{RunID: runID, ExperimentID: experiment.ExperimentID, Status: "queued", SourceType: "openai_compatible", ResultKind: "measured", SoftwareVersion: "0.1.0", Config: experiment.Config, CreatedAt: time.Now().UTC(), StageSummaries: []StageSummary{}}
+	if err := a.store.createRun(owner, run); err != nil {
+		a.credentials.remove(runID)
+		writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not create runner task")
+		return
+	}
+	task := RunnerTask{TaskID: runID, RunID: runID, ExperimentID: experiment.ExperimentID, SourceType: "openai_compatible", Config: experiment.Config, TaskToken: a.runnerToken(runID), ResultEndpoint: "/api/v1/runner-tasks/" + runID + "/result"}
+	task.CredentialAvailable = input.APIKey != ""
+	writeJSON(w, http.StatusAccepted, task)
+}
+
+func (a *App) submitRunnerResult(w http.ResponseWriter, r *http.Request) {
+	owner := a.owner(w, r)
+	run, err := a.store.run(owner, r.PathValue("id"))
+	if isNotFound(err) && a.validRunnerToken(r.PathValue("id"), r.Header.Get("X-InferLab-Runner-Token")) {
+		owner, err = a.store.runOwner(r.PathValue("id"))
+		if err == nil {
+			run, err = a.store.run(owner, r.PathValue("id"))
+		}
+	}
+	if err != nil {
+		a.readError(w, err)
+		return
+	}
+	if run.SourceType != "openai_compatible" {
+		writeError(w, http.StatusBadRequest, "LOCAL_RUNNER_TARGET_REQUIRED", "run is not owned by a local runner")
+		return
+	}
+	if run.terminal() {
+		writeError(w, http.StatusConflict, "RUN_ALREADY_FINISHED", "runner result was already accepted")
+		return
+	}
+	var result RunnerResult
+	if !decodeJSON(w, r, &result) {
+		return
+	}
+	if result.RunID != run.RunID {
+		writeError(w, http.StatusBadRequest, "RUN_ID_MISMATCH", "runner result does not match the task")
+		return
+	}
+	if err := result.validateFor(run.Config); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_RUNNER_RESULT", err.Error())
+		return
+	}
+	now := time.Now().UTC()
+	if result.StartedAt == nil {
+		result.StartedAt = &now
+	}
+	if result.FinishedAt == nil {
+		result.FinishedAt = &now
+	}
+	run.Status = result.Status
+	run.Metrics = result.Metrics
+	run.CurrentStage = result.CurrentStage
+	run.StageSummaries = result.StageSummaries
+	run.StartedAt = result.StartedAt
+	run.FinishedAt = result.FinishedAt
+	run.ErrorCode = result.ErrorCode
+	run.Diagnostics = result.Diagnostics
+	if err := a.store.finishLocalRun(owner, run, "local_runner_"+result.Status); err != nil {
+		if errors.Is(err, errRunAlreadyFinished) {
+			writeError(w, http.StatusConflict, "RUN_ALREADY_FINISHED", "run reached a terminal state before this result was accepted")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not save runner result")
+		return
+	}
+	a.credentials.remove(run.RunID)
+	writeJSON(w, http.StatusAccepted, run)
 }
 
 func (a *App) getRun(w http.ResponseWriter, r *http.Request) {
@@ -267,8 +394,27 @@ func (a *App) cancelRun(w http.ResponseWriter, r *http.Request) {
 		a.readError(w, err)
 		return
 	}
-	if !run.terminal() {
+	if !run.terminal() && run.SourceType == "openai_compatible" {
+		now := time.Now().UTC()
+		run.Status = "canceled"
+		run.ErrorCode = "RUN_CANCELED"
+		run.FinishedAt = &now
+		if err := a.store.finishLocalRun(owner, run, "run_canceled"); err != nil {
+			if !errors.Is(err, errRunAlreadyFinished) {
+				writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not cancel run")
+				return
+			}
+			run, err = a.store.run(owner, run.RunID)
+			if err != nil {
+				a.readError(w, err)
+				return
+			}
+		}
+	} else if !run.terminal() {
 		a.runner.cancel(owner, run.RunID)
+	}
+	if run.terminal() {
+		a.credentials.remove(run.RunID)
 	}
 	writeJSON(w, 202, map[string]any{"run_id": run.RunID, "status": run.Status, "cancel_requested": !run.terminal()})
 }
@@ -335,5 +481,9 @@ func (a *App) getReport(w http.ResponseWriter, r *http.Request) {
 	if len(recommendations) == 0 {
 		recommendations = append(recommendations, "已采样阶段满足设定阈值；请在授权真实目标上复测后评估上线。")
 	}
-	writeJSON(w, 200, Report{Run: run, SLOStatus: status, Recommendations: recommendations, Methodology: "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。", Note: "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"})
+	note := "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"
+	if run.SourceType == "openai_compatible" {
+		note = "本地 Runner 实测：指标由用户本地进程对授权 OpenAI-compatible 目标采样后回传；服务端不保存目标凭证、Prompt 或响应正文，也未独立复测这些数据。"
+	}
+	writeJSON(w, 200, Report{Run: run, SLOStatus: status, Recommendations: recommendations, Methodology: "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。", Note: note})
 }

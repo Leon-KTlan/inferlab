@@ -1,0 +1,131 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type DEPLOY_PRODUCTION to confirm the production release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: inferlab-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy production
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'DEPLOY_PRODUCTION'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        env:
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_KNOWN_HOSTS }}
+          DEPLOY_DIR: ${{ secrets.PRODUCTION_DEPLOY_DIR }}
+          SESSION_SECRET: ${{ secrets.INFERLAB_PRODUCTION_SESSION_SECRET }}
+          REGISTRY_USER: ${{ secrets.PRODUCTION_REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.PRODUCTION_REGISTRY_TOKEN }}
+          HTTP_PORT: ${{ vars.PRODUCTION_HTTP_PORT || '8080' }}
+        run: |
+          set -Eeuo pipefail
+          require_value() {
+            local name="$1" value="$2"
+            [[ -n "$value" ]] || { echo "$name is required" >&2; exit 1; }
+          }
+          require_value PRODUCTION_SSH_HOST "$SSH_HOST"
+          require_value PRODUCTION_SSH_USER "$SSH_USER"
+          require_value PRODUCTION_SSH_PRIVATE_KEY "$SSH_PRIVATE_KEY"
+          require_value PRODUCTION_KNOWN_HOSTS "$SSH_KNOWN_HOSTS"
+          require_value PRODUCTION_DEPLOY_DIR "$DEPLOY_DIR"
+          require_value INFERLAB_PRODUCTION_SESSION_SECRET "$SESSION_SECRET"
+          require_value PRODUCTION_REGISTRY_USER "$REGISTRY_USER"
+          require_value PRODUCTION_REGISTRY_TOKEN "$REGISTRY_TOKEN"
+          [[ "$DEPLOY_DIR" == /* ]] || { echo "PRODUCTION_DEPLOY_DIR must be absolute" >&2; exit 1; }
+          [[ ${#SESSION_SECRET} -ge 32 ]] || { echo "INFERLAB_PRODUCTION_SESSION_SECRET must be at least 32 characters" >&2; exit 1; }
+          [[ "$HTTP_PORT" =~ ^[1-9][0-9]{3,4}$ && "$HTTP_PORT" -ge 1024 && "$HTTP_PORT" -le 65535 ]] || { echo "PRODUCTION_HTTP_PORT must be an integer between 1024 and 65535 without leading zeros" >&2; exit 1; }
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish image
+        id: build_image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}:prod-sha-${{ github.sha }}
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+      - name: Prepare remote files
+        env:
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          PRODUCTION_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+          DEPLOY_DIR: ${{ secrets.PRODUCTION_DEPLOY_DIR }}
+          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.build_image.outputs.digest }}
+          SESSION_SECRET: ${{ secrets.INFERLAB_PRODUCTION_SESSION_SECRET }}
+          HTTP_PORT: ${{ vars.PRODUCTION_HTTP_PORT || '8080' }}
+        run: |
+          env_file="$RUNNER_TEMP/inferlab-production.env"
+          umask 077
+          if [[ "$SESSION_SECRET" == *$'\n'* || "$SESSION_SECRET" == *$'\r'* ]]; then
+            echo "INFERLAB_PRODUCTION_SESSION_SECRET must not contain newlines" >&2
+            exit 1
+          fi
+          compose_quote() {
+            local value="$1"
+            value=${value//\'/\\\'}
+            printf "'%s'" "$value"
+          }
+          printf 'INFERLAB_IMAGE=%s\nINFERLAB_HTTP_PORT=%s\nINFERLAB_SESSION_SECRET=%s\n' "$IMAGE" "$HTTP_PORT" "$(compose_quote "$SESSION_SECRET")" > "$env_file"
+          ssh "$PRODUCTION_USER@$PRODUCTION_HOST" "mkdir -p '$DEPLOY_DIR/infra'"
+          scp infra/docker-compose.yml infra/deploy-environment.sh "$PRODUCTION_USER@$PRODUCTION_HOST:$DEPLOY_DIR/infra/"
+          scp "$env_file" "$PRODUCTION_USER@$PRODUCTION_HOST:$DEPLOY_DIR/.env"
+          ssh "$PRODUCTION_USER@$PRODUCTION_HOST" "chmod 600 '$DEPLOY_DIR/.env'"
+
+      - name: Login to registry on production host
+        env:
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          PRODUCTION_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+          REGISTRY_USER: ${{ secrets.PRODUCTION_REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.PRODUCTION_REGISTRY_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | ssh "$PRODUCTION_USER@$PRODUCTION_HOST" "docker login ghcr.io -u '$REGISTRY_USER' --password-stdin"
+
+      - name: Deploy and verify
+        env:
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          PRODUCTION_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+          DEPLOY_DIR: ${{ secrets.PRODUCTION_DEPLOY_DIR }}
+        run: ssh "$PRODUCTION_USER@$PRODUCTION_HOST" "chmod 700 '$DEPLOY_DIR/infra/deploy-environment.sh' && DEPLOY_DIR='$DEPLOY_DIR' bash '$DEPLOY_DIR/infra/deploy-environment.sh'"
+
+      - name: Logout from registry
+        if: ${{ always() }}
+        env:
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          PRODUCTION_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+        run: ssh "$PRODUCTION_USER@$PRODUCTION_HOST" 'docker logout ghcr.io >/dev/null 2>&1 || true'

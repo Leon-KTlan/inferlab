@@ -1,3 +1,4 @@
+import { eventLabel, type RequestDiagnostic } from './diagnostics'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '')
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
@@ -23,6 +24,7 @@ export interface Run {
   current_stage_p95_ms?: number
   updated_at?: string
   error?: string
+  diagnostics?: RequestDiagnostic[]
   events?: Array<{ timestamp?: string; message: string }>
 }
 
@@ -70,14 +72,50 @@ interface BackendRun {
   started_at?: string
   finished_at?: string
   error_code?: string
+  diagnostics?: RequestDiagnostic[]
   config?: { workload?: ExperimentInput['load'] }
 }
+
+interface BackendRunnerTask {
+  task_id: string
+  run_id: string
+  experiment_id: string
+  source_type: 'openai_compatible'
+  config: { target: ExperimentInput['target']; workload: ExperimentInput['load']; slo: ExperimentInput['slo'] }
+  task_token: string
+  result_endpoint: string
+  credential_available?: boolean
+}
+
+export type RunnerTask = BackendRunnerTask
+export function serializeRunnerTask(task: RunnerTask): string { return `${JSON.stringify(task, null, 2)}\n` }
+export function buildRunnerCommand(apiUrl: string): string { return `cd services/api && go run . runner --task /path/task.json --api-url ${apiUrl} --authorize-target` }
+export function downloadRunnerTask(task: RunnerTask): void { const blob = new Blob([serializeRunnerTask(task)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'task.json'; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 0) }
 
 interface BackendReport extends BackendRun {
   slo_status: string
   recommendations: string[]
   methodology: string
   note: string
+}
+
+export interface Comparison {
+  baseline_run_id: string
+  compare_run_id: string
+  comparable: boolean
+  stages: Array<{
+    stage: number
+    concurrency: number
+    baseline: BackendStage
+    compare: BackendStage
+    delta: { p95_e2e_ms: number; error_rate: number; throughput_rps: number }
+  }>
+  overall: {
+    baseline: Pick<BackendRun, 'request_count' | 'completed_count' | 'success_count' | 'error_count' | 'p50_e2e_ms' | 'p95_e2e_ms' | 'error_rate' | 'throughput_rps' | 'duration_seconds'>
+    compare: Pick<BackendRun, 'request_count' | 'completed_count' | 'success_count' | 'error_count' | 'p50_e2e_ms' | 'p95_e2e_ms' | 'error_rate' | 'throughput_rps' | 'duration_seconds'>
+    delta: { p95_e2e_ms: number; error_rate: number; throughput_rps: number }
+  }
+  notes: string[]
 }
 
 export interface Report {
@@ -128,7 +166,20 @@ function normalizeRun(raw: BackendRun, events: Run['events'] = []): Run {
     current_stage_p95_ms: current?.p95_e2e_ms,
     updated_at: raw.finished_at ?? raw.started_at ?? raw.created_at,
     error: raw.error_code,
+    diagnostics: raw.diagnostics,
     events,
+  }
+}
+
+function normalizeRunnerTask(task: BackendRunnerTask): Run {
+  return {
+    id: task.run_id,
+    experiment_id: task.experiment_id,
+    status: 'queued',
+    target_type: task.source_type,
+    total_stages: task.config.workload.concurrency_steps.length,
+    updated_at: new Date().toISOString(),
+    events: [{ message: eventLabel('local_runner_task_created') }],
   }
 }
 
@@ -137,7 +188,7 @@ async function getNormalizedRun(id: string): Promise<Run> {
   let events: Run['events'] = []
   try {
     const eventBody = await request<{ events: Array<{ at: string; type: string; stage: number }> }>(`/runs/${encodeURIComponent(id)}/events`)
-    events = eventBody.events.map(event => ({ timestamp: event.at, message: `${event.type}${event.stage ? ` · 阶段 ${event.stage}` : ''}` }))
+    events = eventBody.events.map(event => ({ timestamp: event.at, message: `${eventLabel(event.type)}${event.stage ? ` · 阶段 ${event.stage}` : ''}` }))
   } catch {
     // Keep the last run snapshot usable when the optional event read fails.
   }
@@ -147,6 +198,7 @@ async function getNormalizedRun(id: string): Promise<Run> {
 export const api = {
   createExperiment: (input: ExperimentInput) => request<BackendExperiment>('/experiments', { method: 'POST', body: JSON.stringify(toBackendConfig(input)) }).then(experiment => ({ id: experiment.experiment_id, ...experiment })),
   startRun: (experimentId: string) => request<BackendRun>(`/experiments/${encodeURIComponent(experimentId)}/runs`, { method: 'POST' }).then(raw => normalizeRun(raw)),
+  createRunnerTask: (experimentId: string, apiKey = '') => request<BackendRunnerTask>(`/experiments/${encodeURIComponent(experimentId)}/runner-tasks`, { method: 'POST', body: JSON.stringify({ api_key: apiKey }) }).then(task => ({ run: normalizeRunnerTask(task), task })),
   listRuns: () => request<{ runs: BackendRun[] }>('/runs').then(body => body.runs.map(raw => normalizeRun(raw))),
   getRun: (id: string) => getNormalizedRun(id),
   cancelRun: async (id: string) => { await request(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }); return getNormalizedRun(id) },
@@ -165,4 +217,5 @@ export const api = {
     recommendations: raw.recommendations,
     slo: undefined,
   } satisfies Report)),
+  compareRuns: (compareRunId: string, baselineRunId: string) => request<Comparison>(`/reports/${encodeURIComponent(compareRunId)}/compare?baseline_run_id=${encodeURIComponent(baselineRunId)}`),
 }

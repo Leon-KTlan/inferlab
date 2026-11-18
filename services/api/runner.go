@@ -96,12 +96,20 @@ type Runner struct {
 }
 
 var errBusy = errors.New("run quota exceeded")
+var errLocalRunnerRequired = errors.New("openai-compatible targets require a local runner")
 
 func newRunner(store *Store, adapter Adapter) *Runner {
 	return &Runner{store: store, adapter: adapter, active: make(map[string]activeRun)}
 }
 
 func (r *Runner) start(owner string, experiment Experiment) (Run, error) {
+	if experiment.Target.Type != "mock" {
+		return Run{}, errLocalRunnerRequired
+	}
+	return r.startWithContext(context.Background(), owner, experiment, "mock", "demo")
+}
+
+func (r *Runner) startWithContext(parent context.Context, owner string, experiment Experiment, sourceType, resultKind string, runIDs ...string) (Run, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || len(r.active) >= 4 {
@@ -112,11 +120,15 @@ func (r *Runner) start(owner string, experiment Experiment) (Run, error) {
 			return Run{}, errBusy
 		}
 	}
-	run := Run{RunID: newID("run"), ExperimentID: experiment.ExperimentID, Status: "queued", SourceType: "mock", ResultKind: "demo", SoftwareVersion: "0.1.0", Config: experiment.Config, CreatedAt: time.Now().UTC(), StageSummaries: []StageSummary{}}
+	runID := newID("run")
+	if len(runIDs) > 0 && runIDs[0] != "" {
+		runID = runIDs[0]
+	}
+	run := Run{RunID: runID, ExperimentID: experiment.ExperimentID, Status: "queued", SourceType: sourceType, ResultKind: resultKind, SoftwareVersion: "0.1.0", Config: experiment.Config, CreatedAt: time.Now().UTC(), StageSummaries: []StageSummary{}}
 	if err := r.store.createRun(owner, run); err != nil {
 		return Run{}, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	r.active[run.RunID] = activeRun{owner: owner, cancel: cancel}
 	r.wg.Add(1)
 	go func() {

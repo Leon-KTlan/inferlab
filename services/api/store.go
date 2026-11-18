@@ -15,6 +15,10 @@ import (
 
 type Store struct{ db *sql.DB }
 
+var errRunAlreadyFinished = errors.New("run is already terminal")
+
+const currentSchemaVersion = 1
+
 func openStore(path string) (*Store, error) {
 	if path != ":memory:" {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -48,18 +52,35 @@ func (s *Store) migrate() error {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 1 {
+	if version > currentSchemaVersion {
 		return fmt.Errorf("unsupported database schema version %d", version)
 	}
-	if version == 1 {
-		return nil
+	for version < currentSchemaVersion {
+		next := version + 1
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		if err := applySchemaMigration(tx, next); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", next)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		version = next
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	_, err = tx.Exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value BLOB NOT NULL);
+	return nil
+}
+
+func applySchemaMigration(tx *sql.Tx, version int) error {
+	switch version {
+	case 1:
+		_, err := tx.Exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value BLOB NOT NULL);
 CREATE TABLE experiments (id TEXT PRIMARY KEY, owner TEXT NOT NULL, data BLOB NOT NULL);
 CREATE INDEX experiments_owner ON experiments(owner);
 CREATE TABLE runs (id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES experiments(id), owner TEXT NOT NULL, status TEXT NOT NULL, data BLOB NOT NULL);
@@ -67,12 +88,11 @@ CREATE INDEX runs_owner ON runs(owner);
 CREATE TABLE samples (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), stage INTEGER NOT NULL, data BLOB NOT NULL);
 CREATE INDEX samples_run ON samples(run_id);
 CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), data BLOB NOT NULL);
-CREATE INDEX events_run ON events(run_id);
-PRAGMA user_version=1;`)
-	if err != nil {
+	CREATE INDEX events_run ON events(run_id);`)
 		return err
+	default:
+		return fmt.Errorf("no migration registered for schema version %d", version)
 	}
-	return tx.Commit()
 }
 
 func (s *Store) localSecret(newSecret []byte) ([]byte, error) {
@@ -145,6 +165,12 @@ func (s *Store) run(owner, id string) (Run, error) {
 	return r, err
 }
 
+func (s *Store) runOwner(id string) (string, error) {
+	var owner string
+	err := s.db.QueryRow("SELECT owner FROM runs WHERE id=?", id).Scan(&owner)
+	return owner, err
+}
+
 func (s *Store) runs(owner string) ([]Run, error) {
 	rows, err := s.db.Query("SELECT data FROM runs WHERE owner=? ORDER BY rowid DESC LIMIT 100", owner)
 	if err != nil {
@@ -197,6 +223,37 @@ func (s *Store) saveRun(r Run, sample *Sample, eventType string) error {
 		if _, err = tx.Exec("INSERT INTO events(run_id,data) VALUES(?,?)", r.RunID, data); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) finishLocalRun(owner string, run Run, eventType string) error {
+	data, err := json.Marshal(run)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec("UPDATE runs SET status=?,data=? WHERE id=? AND owner=? AND status IN ('queued','running')", run.Status, data, run.RunID, owner)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return errRunAlreadyFinished
+	}
+	event, err := json.Marshal(Event{RunID: run.RunID, Type: eventType, Stage: run.CurrentStage, At: time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec("INSERT INTO events(run_id,data) VALUES(?,?)", run.RunID, event); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
