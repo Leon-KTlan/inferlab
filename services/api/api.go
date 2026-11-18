@@ -44,6 +44,13 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 		return nil, err
 	}
 	cleanup := func(err error) (*App, error) { store.db.Close(); return nil, err }
+	if value := os.Getenv("DAILY_REQUEST_LIMIT"); value != "" {
+		limit, err := strconv.Atoi(value)
+		if err != nil || limit < 1 || limit > 1000000000 {
+			return cleanup(errors.New("DAILY_REQUEST_LIMIT must be an integer between 1 and 1000000000"))
+		}
+		store.dailyLimit = limit
+	}
 	if len(secret) == 0 {
 		secret, err = store.localSecret([]byte(newID("session")))
 		if err != nil {
@@ -61,12 +68,21 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /api/v1/healthz", a.health)
+	mux.HandleFunc("GET /api/v1/auth/me", a.authMe)
+	mux.HandleFunc("POST /api/v1/auth/register", a.register)
+	mux.HandleFunc("POST /api/v1/auth/login", a.login)
+	mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	mux.HandleFunc("POST /api/v1/experiments", a.createExperiment)
 	mux.HandleFunc("GET /api/v1/experiments", a.listExperiments)
 	mux.HandleFunc("GET /api/v1/experiments/{id}", a.getExperiment)
+	mux.HandleFunc("DELETE /api/v1/experiments/{id}", a.deleteExperiment)
 	mux.HandleFunc("POST /api/v1/experiments/{id}/runs", a.startRun)
 	mux.HandleFunc("POST /api/v1/experiments/{id}/runner-tasks", a.createRunnerTask)
 	mux.HandleFunc("GET /api/v1/runs/{id}", a.getRun)
+	mux.HandleFunc("DELETE /api/v1/runs/{id}", a.deleteRun)
+	mux.HandleFunc("POST /api/v1/runs/{id}/share", a.createShare)
+	mux.HandleFunc("DELETE /api/v1/runs/{id}/share", a.revokeShare)
+	mux.HandleFunc("GET /api/v1/shares/{token}", a.getShare)
 	mux.HandleFunc("GET /api/v1/runs", a.listRuns)
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", a.cancelRun)
 	mux.HandleFunc("POST /api/v1/runner-tasks/{id}/result", a.submitRunnerResult)
@@ -84,6 +100,7 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
 		})
 	}
+	apiHandler := a.identityMiddleware(mux)
 	a.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
@@ -93,12 +110,12 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
 			// Browser requests must originate from the same site; no cross-origin API access is enabled.
-			if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+			if !sameOrigin(r, a.secure) {
 				writeError(w, http.StatusForbidden, "CROSS_SITE_REQUEST", "cross-site API requests are not allowed")
 				return
 			}
 		}
-		mux.ServeHTTP(w, r)
+		apiHandler.ServeHTTP(w, r)
 	})
 	return a, nil
 }
@@ -152,15 +169,7 @@ func (a *App) validRunnerToken(runID, token string) bool {
 	return hmac.Equal([]byte(strings.TrimSpace(token)), []byte(a.runnerToken(runID)))
 }
 func (a *App) owner(w http.ResponseWriter, r *http.Request) string {
-	if cookie, err := r.Cookie("inferlab_session"); err == nil {
-		parts := strings.Split(cookie.Value, ".")
-		if len(parts) == 2 && len(parts[0]) == 40 && hmac.Equal([]byte(parts[1]), []byte(a.sign(parts[0]))) {
-			return parts[0]
-		}
-	}
-	owner := newID("visitor")
-	http.SetCookie(w, &http.Cookie{Name: "inferlab_session", Value: owner + "." + a.sign(owner), Path: "/", HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteStrictMode, MaxAge: 365 * 24 * 60 * 60})
-	return owner
+	return requestIdentity(r).Owner
 }
 
 func (a *App) health(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +211,9 @@ func (a *App) createExperiment(w http.ResponseWriter, r *http.Request) {
 	}
 	e := Experiment{ExperimentID: newID("exp"), Config: config, CreatedAt: time.Now().UTC()}
 	if err := a.store.createExperiment(owner, e); err != nil {
+		if a.creationError(w, err) {
+			return
+		}
 		writeError(w, 500, "STORAGE_WRITE_FAILED", "could not save experiment")
 		return
 	}
@@ -235,6 +247,9 @@ func (a *App) readError(w http.ResponseWriter, err error) {
 }
 
 func (a *App) startRun(w http.ResponseWriter, r *http.Request) {
+	if !a.requireLogin(w, r) {
+		return
+	}
 	owner := a.owner(w, r)
 	e, err := a.store.experiment(owner, r.PathValue("id"))
 	if err != nil {
@@ -242,8 +257,7 @@ func (a *App) startRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run, err := a.runner.start(owner, e)
-	if errors.Is(err, errBusy) {
-		writeError(w, 429, "RUN_QUOTA_EXCEEDED", "one active run per visitor and four active runs globally are allowed")
+	if a.creationError(w, err) {
 		return
 	}
 	if errors.Is(err, errLocalRunnerRequired) {
@@ -258,6 +272,9 @@ func (a *App) startRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) createRunnerTask(w http.ResponseWriter, r *http.Request) {
+	if !a.requireLogin(w, r) {
+		return
+	}
 	owner := a.owner(w, r)
 	experiment, err := a.store.experiment(owner, r.PathValue("id"))
 	if err != nil {
@@ -301,12 +318,32 @@ func (a *App) createRunnerTask(w http.ResponseWriter, r *http.Request) {
 	run := Run{RunID: runID, ExperimentID: experiment.ExperimentID, Status: "queued", SourceType: "openai_compatible", ResultKind: "measured", SoftwareVersion: "0.1.0", Config: experiment.Config, CreatedAt: time.Now().UTC(), StageSummaries: []StageSummary{}}
 	if err := a.store.createRun(owner, run); err != nil {
 		a.credentials.remove(runID)
+		if a.creationError(w, err) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not create runner task")
 		return
 	}
 	task := RunnerTask{TaskID: runID, RunID: runID, ExperimentID: experiment.ExperimentID, SourceType: "openai_compatible", Config: experiment.Config, TaskToken: a.runnerToken(runID), ResultEndpoint: "/api/v1/runner-tasks/" + runID + "/result"}
 	task.CredentialAvailable = input.APIKey != ""
 	writeJSON(w, http.StatusAccepted, task)
+}
+
+func (a *App) creationError(w http.ResponseWriter, err error) bool {
+	var quota *quotaError
+	if errors.As(err, &quota) {
+		writeJSON(w, 429, map[string]any{"error": map[string]any{"code": "DAILY_REQUEST_QUOTA_EXCEEDED", "message": "daily reserved request quota exhausted", "quota": quota.Quota}})
+		return true
+	}
+	if errors.Is(err, errSessionChanged) {
+		writeError(w, 409, "SESSION_CHANGED", "session changed; refresh before retrying")
+		return true
+	}
+	if errors.Is(err, errBusy) {
+		writeError(w, 429, "RUN_QUOTA_EXCEEDED", "one active run per owner and four globally are allowed")
+		return true
+	}
+	return false
 }
 
 func (a *App) submitRunnerResult(w http.ResponseWriter, r *http.Request) {

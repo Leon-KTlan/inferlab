@@ -13,11 +13,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db         *sql.DB
+	dailyLimit int
+	now        func() time.Time
+}
 
 var errRunAlreadyFinished = errors.New("run is already terminal")
 
-const currentSchemaVersion = 1
+const currentSchemaVersion = 2
 
 func openStore(path string) (*Store, error) {
 	if path != ":memory:" {
@@ -30,7 +34,7 @@ func openStore(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, dailyLimit: 10000, now: time.Now}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -79,6 +83,15 @@ func (s *Store) migrate() error {
 
 func applySchemaMigration(tx *sql.Tx, version int) error {
 	switch version {
+	case 2:
+		_, err := tx.Exec(`CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash BLOB NOT NULL);
+CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, owner TEXT NOT NULL, user_id TEXT REFERENCES users(id), expires_at INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX sessions_owner ON sessions(owner);
+CREATE TABLE anonymous_claims (owner TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id));
+CREATE TABLE login_attempts (bucket TEXT PRIMARY KEY, window_start INTEGER NOT NULL, failures INTEGER NOT NULL);
+CREATE TABLE daily_quotas (owner TEXT NOT NULL, day TEXT NOT NULL, reserved INTEGER NOT NULL CHECK(reserved>=0), PRIMARY KEY(owner,day));
+CREATE TABLE report_shares (token TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE REFERENCES runs(id), owner TEXT NOT NULL, created_at INTEGER NOT NULL);`)
+		return err
 	case 1:
 		_, err := tx.Exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value BLOB NOT NULL);
 CREATE TABLE experiments (id TEXT PRIMARY KEY, owner TEXT NOT NULL, data BLOB NOT NULL);
@@ -109,8 +122,18 @@ func (s *Store) createExperiment(owner string, experiment Experiment) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec("INSERT INTO experiments(id,owner,data) VALUES(?,?,?)", experiment.ExperimentID, owner, data)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := unclaimedOwner(tx, owner); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("INSERT INTO experiments(id,owner,data) VALUES(?,?,?)", experiment.ExperimentID, owner, data); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) experiment(owner, id string) (Experiment, error) {
@@ -146,12 +169,7 @@ func (s *Store) experiments(owner string) ([]Experiment, error) {
 }
 
 func (s *Store) createRun(owner string, r Run) error {
-	data, err := json.Marshal(r)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec("INSERT INTO runs(id,experiment_id,owner,status,data) VALUES(?,?,?,?,?)", r.RunID, r.ExperimentID, owner, r.Status, data)
-	return err
+	return s.reserveRun(owner, r)
 }
 
 func (s *Store) run(owner, id string) (Run, error) {
@@ -237,6 +255,11 @@ func (s *Store) finishLocalRun(owner string, run Run, eventType string) error {
 		return err
 	}
 	defer tx.Rollback()
+	// Registration can transfer an in-flight task after its request was authorized.
+	owner, err = currentOwner(tx, owner)
+	if err != nil {
+		return err
+	}
 	result, err := tx.Exec("UPDATE runs SET status=?,data=? WHERE id=? AND owner=? AND status IN ('queued','running')", run.Status, data, run.RunID, owner)
 	if err != nil {
 		return err
