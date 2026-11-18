@@ -54,3 +54,9 @@ git diff --check
 ## 外部依赖
 
 staging未验收；正式支付、监控和公开运营未实现。根代理已完成并验证堆叠PR的CI过滤和新smoke门禁，本次提交纳入该文件。远端检查以PR实际结果为准，可执行 `gh pr checks codex/feature/invite-test`；不得将本地通过表述为阶段或上线完成。
+
+## 根代理独立验收
+
+2026-11-18根代理报告无新增代码问题：独立go vet及完整race通过（20.085s）；修复后的session/revoke三项定向race通过（5.071s）；npm lint及10/10测试通过；新stage3真实浏览器流程、重启持久化、慢me首次匿名实验、`--legacy`原smoke均通过。另验证两个无cookie独立注册且claim=true均201。根代理已检查截图和CI YAML，独立截图保存在 `/tmp/inferlab-root-stage3-evidence`。
+
+功能提交 `dd7706c` 已推送，PR [#5](https://github.com/Leon-KTlan/inferlab/pull/5) 依赖 #4，目标 `codex/feature/openai-compatible-runner`。独立验收摘要另作纯文档提交；最终HEAD与远端CI结果以PR为准。本批未合并、未生产发布，staging仍为外部依赖。

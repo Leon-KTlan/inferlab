@@ -9,4 +9,4 @@
 7. 已读根/目录规则及 008；未启动其它 AI；测试使用独立临时 DB 和端口。
 8. 红→绿：TestInviteRegistrationAndIsolation 起初注册 404/期望403；TestInviteSecureStartRequiresLogin 起初匿名启动202/期望401；实现后连同旧生命周期测试通过（2.698s）。密码范围已按根审核改为12–72字节，身份写接口强制JSON，KDF前有界限流。
 9. 已实现：身份/迁移/认领、事务额度、终态白名单分享及撤销/删除、前端账户/历史/公共页；根审查指出的撤销认领竞态与拒绝认证写会话均修复，新增确定性 race/容量负例。Vite保留原Host；慢 me 响应真实浏览器检查通过。
-10. 交付：最终Go vet/test/race、web lint/check、audit、新smoke/慢me/原smoke隔离fixture全部通过；根代理CI已就绪并纳入提交。PR/CI查询 `gh pr view codex/feature/invite-test`、`gh pr checks codex/feature/invite-test`；证据见EVIDENCE.md。本批不合并/发布，待根验收。
+10. 交付：功能提交dd7706c；PR #5依赖#4。完整本地门禁及根独立验收均通过，详见EVIDENCE.md（独立完整race20.085s、定向5.071s、web10/10、新/旧smoke及慢me）。根CI已纳入，最后仅检查PR最新HEAD的实际远端结果；不再扩展功能，不合并/发布，staging待验收。
