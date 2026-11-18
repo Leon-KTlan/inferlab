@@ -11,13 +11,14 @@ import (
 // RunnerTask is the credential-free handoff between the API and a local runner.
 // The API key is deliberately absent and must stay in the local runner process.
 type RunnerTask struct {
-	TaskID         string `json:"task_id"`
-	RunID          string `json:"run_id"`
-	ExperimentID   string `json:"experiment_id"`
-	SourceType     string `json:"source_type"`
-	Config         Config `json:"config"`
-	TaskToken      string `json:"task_token"`
-	ResultEndpoint string `json:"result_endpoint"`
+	TaskID              string `json:"task_id"`
+	RunID               string `json:"run_id"`
+	ExperimentID        string `json:"experiment_id"`
+	SourceType          string `json:"source_type"`
+	Config              Config `json:"config"`
+	TaskToken           string `json:"task_token"`
+	ResultEndpoint      string `json:"result_endpoint"`
+	CredentialAvailable bool   `json:"credential_available,omitempty"`
 }
 
 type RunnerResult struct {

@@ -29,7 +29,7 @@ type cliFixture struct {
 	targetCalls atomic.Int64
 }
 
-func newCLIFixture(t *testing.T, targetHandler http.HandlerFunc) *cliFixture {
+func newCLIFixture(t *testing.T, targetHandler http.HandlerFunc, taskKey ...string) *cliFixture {
 	t.Helper()
 	t.Setenv("OPENAI_API_KEY", "runner-test-secret-key")
 	f := &cliFixture{owner: newID("visitor")}
@@ -72,7 +72,18 @@ func newCLIFixture(t *testing.T, targetHandler http.HandlerFunc) *cliFixture {
 	if err := app.store.createExperiment(f.owner, experiment); err != nil {
 		t.Fatal(err)
 	}
-	req, _ := http.NewRequest("POST", f.api.URL+"/api/v1/experiments/"+experiment.ExperimentID+"/runner-tasks", nil)
+	var body io.Reader
+	if len(taskKey) > 0 {
+		data, err := json.Marshal(map[string]string{"api_key": taskKey[0]})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = bytes.NewReader(data)
+	}
+	req, _ := http.NewRequest("POST", f.api.URL+"/api/v1/experiments/"+experiment.ExperimentID+"/runner-tasks", body)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.AddCookie(&http.Cookie{Name: "inferlab_session", Value: f.owner + "." + app.sign(f.owner)})
 	response, err := f.api.Client().Do(req)
 	if err != nil {

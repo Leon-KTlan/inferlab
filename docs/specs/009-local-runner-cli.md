@@ -19,8 +19,14 @@ CLI，并在原浏览器查看脱敏结果。复用现有 Go Runner、任务协�
    go run . runner --task /path/task.json --api-url http://127.0.0.1:4173 --authorize-target
    ```
 
-4. CLI 从本地 `OPENAI_API_KEY` 环境变量读取目标 Key。网页、任务文件和结果
-   协议不接收 Key。`--authorize-target` 必须显式指定，缺少时不得发送目标请求。
+4. 网页可在 Endpoint 旁输入 API Key，以独立的任务创建请求发送到同源 API。
+   Key 仅在服务端内存暂存5分钟，最多64条；领取、取消或服务关闭时清除，不进入
+   配置、任务文件、数据库、浏览器存储或日志。提交后清空输入。
+   任务以 `credential_available: true` 标记临时交接，CLI 在授权和目标校验后，
+   通过固定 `POST /api/v1/runner-tasks/{run_id}/credential` 路径携任务令牌一次性
+   领取。服务端和 CLI 均核对目标快照；不跟随重定向，非本机必须 HTTPS。
+   领取失败须在发送目标请求前退出，不能自动重跑；任务文件因此也属于短期取密凭据。
+   未填写 Key 时仍支持本地 `OPENAI_API_KEY`。`--authorize-target` 必须显式指定。
 5. CLI 验证任务、执行有界请求，并用 `X-InferLab-Runner-Token` 回传终态结果。
    原浏览器继续轮询 Run 并显示报告；等待 CLI 时明确展示等待本地执行。
 

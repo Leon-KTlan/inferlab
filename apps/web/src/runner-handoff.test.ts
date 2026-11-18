@@ -17,6 +17,7 @@ const task: RunnerTask = {
   },
   task_token: "capability-only-test-token",
   result_endpoint: "/api/v1/runner-tasks/run_123/result",
+  credential_available: true,
 };
 
 describe("local Runner handoff", () => {
@@ -26,6 +27,8 @@ describe("local Runner handoff", () => {
     expect(parsed.task_token).toBe(task.task_token);
     expect(parsed.config.target.endpoint).toBe(task.config.target.endpoint);
     expect(parsed.result_endpoint).toBe(task.result_endpoint);
+    expect(parsed.credential_available).toBe(true);
+    expect(parsed.api_key).toBeUndefined();
     expect(serialized).not.toContain("OPENAI_API_KEY");
   });
 

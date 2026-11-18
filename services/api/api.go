@@ -18,12 +18,13 @@ import (
 )
 
 type App struct {
-	store   *Store
-	runner  *Runner
-	mock    *MockAdapter
-	secret  []byte
-	secure  bool
-	handler http.Handler
+	store       *Store
+	runner      *Runner
+	mock        *MockAdapter
+	secret      []byte
+	secure      bool
+	handler     http.Handler
+	credentials runnerCredentials
 }
 
 func newID(prefix string) string {
@@ -69,6 +70,7 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 	mux.HandleFunc("GET /api/v1/runs", a.listRuns)
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", a.cancelRun)
 	mux.HandleFunc("POST /api/v1/runner-tasks/{id}/result", a.submitRunnerResult)
+	mux.HandleFunc("POST /api/v1/runner-tasks/{id}/credential", a.claimRunnerCredential)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", a.getEvents)
 	mux.HandleFunc("GET /api/v1/runs/{id}/report", a.getReport)
 	mux.HandleFunc("GET /api/v1/reports/{id}/compare", a.compareReports)
@@ -102,7 +104,7 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 }
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.handler.ServeHTTP(w, r) }
-func (a *App) Close()                                           { a.runner.Close(); a.mock.Close(); a.store.db.Close() }
+func (a *App) Close()                                           { a.runner.Close(); a.credentials.close(); a.mock.Close(); a.store.db.Close() }
 
 func spaHandler(dir string) http.Handler {
 	files := http.FileServer(http.Dir(dir))
@@ -266,6 +268,18 @@ func (a *App) createRunnerTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "LOCAL_RUNNER_TARGET_REQUIRED", "runner tasks are only available for OpenAI-compatible targets")
 		return
 	}
+	var input struct {
+		APIKey string `json:"api_key"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+	}
+	if len(input.APIKey) > 4096 || strings.ContainsAny(input.APIKey, "\r\n") {
+		writeError(w, 400, "INVALID_API_KEY", "API Key is invalid")
+		return
+	}
 	runs, err := a.store.runs(owner)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "STORAGE_READ_FAILED", "could not read runs")
@@ -278,12 +292,20 @@ func (a *App) createRunnerTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	runID := newID("run")
+	if input.APIKey != "" {
+		if !a.credentials.put(runID, input.APIKey) {
+			writeError(w, 429, "CREDENTIAL_QUOTA_EXCEEDED", "temporary credential capacity reached")
+			return
+		}
+	}
 	run := Run{RunID: runID, ExperimentID: experiment.ExperimentID, Status: "queued", SourceType: "openai_compatible", ResultKind: "measured", SoftwareVersion: "0.1.0", Config: experiment.Config, CreatedAt: time.Now().UTC(), StageSummaries: []StageSummary{}}
 	if err := a.store.createRun(owner, run); err != nil {
+		a.credentials.remove(runID)
 		writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not create runner task")
 		return
 	}
 	task := RunnerTask{TaskID: runID, RunID: runID, ExperimentID: experiment.ExperimentID, SourceType: "openai_compatible", Config: experiment.Config, TaskToken: a.runnerToken(runID), ResultEndpoint: "/api/v1/runner-tasks/" + runID + "/result"}
+	task.CredentialAvailable = input.APIKey != ""
 	writeJSON(w, http.StatusAccepted, task)
 }
 
@@ -342,6 +364,7 @@ func (a *App) submitRunnerResult(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "STORAGE_WRITE_FAILED", "could not save runner result")
 		return
 	}
+	a.credentials.remove(run.RunID)
 	writeJSON(w, http.StatusAccepted, run)
 }
 
@@ -388,6 +411,9 @@ func (a *App) cancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if !run.terminal() {
 		a.runner.cancel(owner, run.RunID)
+	}
+	if run.terminal() {
+		a.credentials.remove(run.RunID)
 	}
 	writeJSON(w, 202, map[string]any{"run_id": run.RunID, "status": run.Status, "cancel_requested": !run.terminal()})
 }

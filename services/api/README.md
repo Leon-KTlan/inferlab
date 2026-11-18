@@ -1,7 +1,8 @@
 # InferLab API
 
 Mock 由 API 进程内的本地 HTTP 模拟服务执行。OpenAI-compatible 目标通过无凭证的
-本地 Runner 任务协议执行，API 进程不会接收或保存目标 API Key。
+本地 Runner 任务协议执行。网页可临时交接 API Key，API 进程仅在内存保存5分钟，
+供对应 Runner 领取一次，不写入数据库、任务文件或日志。
 
 ```bash
 go run .
@@ -19,7 +20,8 @@ go run .
 - `GET /api/v1/experiments` 返回当前访问者最近100个实验：`{experiments:[...]}`。
 - `GET /api/v1/experiments/{id}` 读取配置。
 - `POST /api/v1/experiments/{id}/runs` 启动实验，202 返回 Run。
-- `POST /api/v1/experiments/{id}/runner-tasks` 为 OpenAI-compatible 目标创建本地 Runner 任务；返回的 `RunnerTask` 不含 API Key，`task_token` 只用于该 Run 的结果回传。
+- `POST /api/v1/experiments/{id}/runner-tasks` 创建任务，可选 JSON `api_key` 仅暂存内存；返回的 `RunnerTask` 不含 Key，`task_token` 绑定本次领取和结果回传。
+- `POST /api/v1/runner-tasks/{id}/credential` 携任务令牌和目标快照，一次领取临时 Key；领取、取消、5分钟超时或服务关闭后清除。
 - `POST /api/v1/runner-tasks/{id}/result` 接收本地 Runner 的终态指标和白名单错误码。
 - `GET /api/v1/runs` 返回当前访问者最近100次 Run，用于刷新后恢复工作台。
 - `GET /api/v1/runs/{id}` 读取持久化状态、配置快照和实时指标。
@@ -63,7 +65,11 @@ cd services/api
 go run . runner --task /path/task.json --api-url http://127.0.0.1:8080 --authorize-target
 ```
 
-通过当前终端环境注入 `OPENAI_API_KEY`，不把 Key 写入任务文件、参数或报告。`--authorize-target` 必须显式提供；缺失时不发送目标请求或回传请求。下载的任务包含仅用于该 Run 回传的 `task_token`，按凭据保管并在使用后删除任务文件。
+可在网页 Endpoint 旁填写 API Key，创建任务后5分钟内执行上述命令，CLI 会凭
+任务令牌从可信 API 一次性领取，无需设置环境变量。Key 过期、已领取或服务重启
+后需创建新任务。留空时继续从 `OPENAI_API_KEY` 读取；Key 不进入任务、参数、报告。
+`--authorize-target` 必须显式提供；缺失时不会领取 Key 或发送目标请求。
+任务文件包含领取和回传凭据，按敏感文件保管，使用后删除。
 
 `--api-url` 必须由操作者指定为可信 API 的 origin，不允许凭据、路径、query 或 fragment。生产使用 HTTPS 并验证证书；HTTP 仅允许数字回环地址或 `localhost`。回传路径必须精确匹配 `/api/v1/runner-tasks/{run_id}/result`，CLI 校验 task_id 与 run_id 一致，拒绝任意绝对回传地址，并且目标请求、结果回传均禁止重定向。真实目标继续拒绝回环、私网和云元数据；CLI 没有绕过 SSRF 或 TLS 校验的参数。
 

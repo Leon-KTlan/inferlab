@@ -50,10 +50,13 @@ with sync_playwright() as playwright:
         if request.method == "GET" and request.url.endswith("/api/v1/runs"):
             route.fulfill(json={"runs": []})
         elif request.method == "POST" and request.url.endswith("/experiments"):
+            assert "api_key" not in request.post_data
+            assert "browser-test-key-only" not in request.post_data
             route.fulfill(status=201, json={"experiment_id": "exp-local", "name": "Local runner", "target": {"type": "openai_compatible", "endpoint": "https://api.example.com/v1", "model": "demo"}, "workload": {"concurrency_steps": [1], "stage_seconds": 1, "max_requests": 10, "max_rps": 2, "timeout_ms": 1000}, "slo": {"p95_e2e_ms": 1000, "error_rate_max": 0.05}})
         elif request.method == "POST" and request.url.endswith("/experiments/exp-local/runner-tasks"):
+            assert request.post_data_json == {"api_key": "browser-test-key-only"}
             runner_calls["create"] += 1
-            route.fulfill(status=202, json={"task_id": "run-local", "run_id": "run-local", "experiment_id": "exp-local", "source_type": "openai_compatible", "config": {"target": {"type": "openai_compatible", "endpoint": "https://api.example.com/v1", "model": "demo"}, "workload": {"concurrency_steps": [1]}, "slo": {"p95_e2e_ms": 1000, "error_rate_max": 0.05}}, "task_token": "smoke-capability-token", "result_endpoint": "/api/v1/runner-tasks/run-local/result"})
+            route.fulfill(status=202, json={"task_id": "run-local", "run_id": "run-local", "experiment_id": "exp-local", "source_type": "openai_compatible", "config": {"target": {"type": "openai_compatible", "endpoint": "https://api.example.com/v1", "model": "demo"}, "workload": {"concurrency_steps": [1]}, "slo": {"p95_e2e_ms": 1000, "error_rate_max": 0.05}}, "task_token": "smoke-capability-token", "result_endpoint": "/api/v1/runner-tasks/run-local/result", "credential_available": True})
         elif request.method == "POST" and request.url.endswith("/runs/run-local/cancel"):
             runner_status["value"] = "canceled"
             route.fulfill(status=200, json={})
@@ -69,6 +72,19 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="免费体验 Mock 体检").click()
     page.get_by_role("button", name="OpenAI 兼容 API").click()
     page.get_by_label("Endpoint").fill("https://api.example.com/v1")
+    page.get_by_label("API Key", exact=True).fill("browser-test-key-only")
+    assert page.get_by_label("API Key", exact=True).get_attribute("type") == "password"
+    page.get_by_role("button", name="显示 API Key", exact=True).click()
+    assert page.get_by_label("API Key", exact=True).get_attribute("type") == "text"
+    page.get_by_role("button", name="隐藏 API Key", exact=True).click()
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    endpoint_box = page.get_by_label("Endpoint").bounding_box()
+    key_box = page.get_by_label("API Key", exact=True).bounding_box()
+    assert abs(endpoint_box["y"] - key_box["y"]) < 2
+    page.screenshot(path="/tmp/inferlab-api-key-desktop.png", full_page=True)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.screenshot(path="/tmp/inferlab-api-key-mobile.png", full_page=True)
     page.get_by_label("模型").fill("demo")
     page.get_by_label("我拥有目标服务的测试授权，并理解可能产生的流量与费用").check()
     with page.expect_download() as download_info:
@@ -79,6 +95,10 @@ with sync_playwright() as playwright:
     assert task["task_token"] == "smoke-capability-token"
     assert download.suggested_filename == "task.json"
     assert "OPENAI_API_KEY" not in json.dumps(task)
+    assert "browser-test-key-only" not in json.dumps(task)
+    assert task["credential_available"] is True
+    assert page.evaluate("Object.values(localStorage).join(' ') + Object.values(sessionStorage).join(' ')").find("browser-test-key-only") == -1
+    assert page.get_by_text("无需在终端输入 Key", exact=False).is_visible()
     assert "smoke-capability-token" not in page.url
     assert page.evaluate("Object.values(localStorage).join(' ')").find("smoke-capability-token") == -1
     assert page.get_by_text("等待本地 Runner", exact=True).is_visible()
@@ -102,4 +122,7 @@ with sync_playwright() as playwright:
     assert page.get_by_text("Ctrl+C", exact=False).is_visible()
     page.get_by_role("button", name="取消记录").click()
     page.locator(".run-header .status").filter(has_text="已取消").wait_for(timeout=5000)
+    page.get_by_role("button", name="新建实验").last.click()
+    page.get_by_role("button", name="OpenAI 兼容 API").click()
+    assert page.get_by_label("API Key", exact=True).input_value() == ""
     browser.close()

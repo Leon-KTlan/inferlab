@@ -65,6 +65,13 @@ func runRunnerCLIWithOptions(ctx context.Context, args []string, stdout, stderr 
 	// The downloaded endpoint never selects an origin or alters the canonical path.
 	apiOrigin.Path = "/api/v1/runner-tasks/" + task.RunID + "/result"
 	key := os.Getenv("OPENAI_API_KEY")
+	if task.CredentialAvailable {
+		key, err = claimLocalCredential(ctx, apiOrigin, task, options.apiTLSConfig)
+		if err != nil {
+			fmt.Fprintln(stderr, "CREDENTIAL_UNAVAILABLE: temporary Key could not be claimed; cancel the old task and create a new one")
+			return 1
+		}
+	}
 	result, executeCode := runValidatedTask(ctx, task, key, options.targetPolicy)
 	if err := submitLocalResult(ctx, apiOrigin.String(), task.TaskToken, result, options.apiTLSConfig); err != nil {
 		fmt.Fprintln(stderr, "RUNNER_RESULT_SUBMISSION_FAILED: result was not confirmed by the trusted API; do not rerun the target automatically")
@@ -216,6 +223,54 @@ func runValidatedTask(ctx context.Context, task RunnerTask, key string, policy E
 	return result, result.ErrorCode
 }
 
+func runnerAPIClient(endpoint string, tlsConfig *tls.Config) (*http.Client, *http.Transport) {
+	u, _ := url.Parse(endpoint)
+	transport := &http.Transport{Proxy: nil, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 5 * time.Second}
+	if u.Scheme == "http" {
+		transport.DialContext = loopbackAPIDial
+	} else {
+		transport.DialContext = (&net.Dialer{Timeout: 5 * time.Second}).DialContext
+	}
+	return &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, transport
+}
+
+func claimLocalCredential(parent context.Context, origin *url.URL, task RunnerTask, tlsConfig *tls.Config) (string, error) {
+	endpoint := *origin
+	endpoint.Path = "/api/v1/runner-tasks/" + task.RunID + "/credential"
+	data, err := json.Marshal(struct {
+		Target Target `json:"target"`
+	}{task.Config.Target})
+	if err != nil {
+		return "", errors.New("credential request invalid")
+	}
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(data))
+	if err != nil {
+		return "", errors.New("credential request invalid")
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-InferLab-Runner-Token", task.TaskToken)
+	client, transport := runnerAPIClient(endpoint.String(), tlsConfig)
+	defer transport.CloseIdleConnections()
+	response, err := client.Do(request)
+	if err != nil {
+		return "", errors.New("credential request failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", errors.New("credential unavailable")
+	}
+	var credential struct {
+		APIKey string `json:"api_key"`
+		Target Target `json:"target"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&credential); err != nil || credential.Target != task.Config.Target || credential.APIKey == "" || len(credential.APIKey) > 4096 || strings.ContainsAny(credential.APIKey, "\r\n") {
+		return "", errors.New("credential response invalid")
+	}
+	return credential.APIKey, nil
+}
+
 func submitLocalResult(parent context.Context, endpoint, token string, result RunnerResult, tlsConfig *tls.Config) error {
 	data, err := json.Marshal(result)
 	if err != nil {
@@ -230,15 +285,8 @@ func submitLocalResult(parent context.Context, endpoint, token string, result Ru
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-InferLab-Runner-Token", token)
-	u, _ := url.Parse(endpoint)
-	transport := &http.Transport{Proxy: nil, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 5 * time.Second}
-	if u.Scheme == "http" {
-		transport.DialContext = loopbackAPIDial
-	} else {
-		transport.DialContext = (&net.Dialer{Timeout: 5 * time.Second}).DialContext
-	}
+	client, transport := runnerAPIClient(endpoint, tlsConfig)
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Do(request)
 	if err != nil {
 		return errors.New("result transport failed")

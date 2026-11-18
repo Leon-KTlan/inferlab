@@ -81,6 +81,7 @@ interface BackendRunnerTask {
   config: { target: ExperimentInput['target']; workload: ExperimentInput['load']; slo: ExperimentInput['slo'] }
   task_token: string
   result_endpoint: string
+  credential_available?: boolean
 }
 
 export type RunnerTask = BackendRunnerTask
@@ -193,7 +194,7 @@ async function getNormalizedRun(id: string): Promise<Run> {
 export const api = {
   createExperiment: (input: ExperimentInput) => request<BackendExperiment>('/experiments', { method: 'POST', body: JSON.stringify(toBackendConfig(input)) }).then(experiment => ({ id: experiment.experiment_id, ...experiment })),
   startRun: (experimentId: string) => request<BackendRun>(`/experiments/${encodeURIComponent(experimentId)}/runs`, { method: 'POST' }).then(raw => normalizeRun(raw)),
-  createRunnerTask: (experimentId: string) => request<BackendRunnerTask>(`/experiments/${encodeURIComponent(experimentId)}/runner-tasks`, { method: 'POST' }).then(task => ({ run: normalizeRunnerTask(task), task })),
+  createRunnerTask: (experimentId: string, apiKey = '') => request<BackendRunnerTask>(`/experiments/${encodeURIComponent(experimentId)}/runner-tasks`, { method: 'POST', body: JSON.stringify({ api_key: apiKey }) }).then(task => ({ run: normalizeRunnerTask(task), task })),
   listRuns: () => request<{ runs: BackendRun[] }>('/runs').then(body => body.runs.map(raw => normalizeRun(raw))),
   getRun: (id: string) => getNormalizedRun(id),
   cancelRun: async (id: string) => { await request(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }); return getNormalizedRun(id) },

@@ -45,14 +45,16 @@ npm run dev
 ## 本地执行真实 API 任务
 
 在网页选择 OpenAI-compatible，填写已授权的 HTTPS 服务地址和模型，创建并下载
-`task.json`。在本地环境配置 `OPENAI_API_KEY`，然后从 `services/api` 目录运行：
+`task.json`。可在 Endpoint 旁填写 API Key，创建后5分钟内启动 Runner；无需终端
+输入 Key。留空时仍可用本地 `OPENAI_API_KEY`。从 `services/api` 目录运行：
 
 ```bash
 go run . runner --task /path/task.json --api-url http://127.0.0.1:4173 --authorize-target
 ```
 
 将 `--api-url` 改成实际 InferLab 网页的 origin；非本机服务必须使用 HTTPS。
-Key 只由本地 Runner 读取。任务文件含本次运行的结果回传凭据，请妥善保管。
+网页输入的 Key 仅在服务端内存暂存5分钟并由 Runner 领取一次，不写入任务文件、
+数据库或浏览器存储。任务文件含本次运行的领取和回传凭据，请妥善保管。
 运行后回到原浏览器查看报告。本地按 Ctrl+C 可停止请求；网页取消只更新服务端
 状态，当前不能远程停止本地进程。
 
