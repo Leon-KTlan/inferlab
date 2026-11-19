@@ -97,6 +97,7 @@ def invite_flow(fixture, output):
         dialog = page.get_by_role("dialog")
         dialog.get_by_label("用户名", exact=True).fill(username)
         dialog.get_by_label("密码", exact=True).fill(password)
+        dialog.get_by_label("确认密码", exact=True).fill(password)
         dialog.get_by_label("邀请码", exact=True).fill(fixture.env["INVITE_CODE"])
         page.set_viewport_size({"width": 390, "height": 844})
         assert_safe(page, forbidden)
@@ -258,6 +259,178 @@ def legacy_flow(fixture):
     print("PASS: original scripts/ui_smoke.py unchanged, isolated forwarding fixture; existing 8080/4173 services untouched")
 
 
+async def registration_flow(fixture, output):
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        context = await browser.new_context(viewport={"width": 1440, "height": 1000})
+        page = await context.new_page()
+        errors, posts = [], []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.on("request", lambda request: posts.append(request) if request.method == "POST" and request.url.endswith("/auth/register") else None)
+        username = "register_" + secrets.token_hex(4)
+        password = secrets.token_urlsafe(24)
+        mismatch = secrets.token_urlsafe(24)
+        invitation = fixture.env["INVITE_CODE"]
+        forbidden = [password, mismatch, invitation]
+
+        async def safe_storage():
+            assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "registration horizontal overflow"
+            assert await page.locator(".auth-modes button").evaluate_all("elements => elements.every(element => element.clientWidth >= 90 && element.scrollHeight <= element.clientHeight && element.scrollWidth <= element.clientWidth)"), "account mode labels do not fit"
+            stored = await page.evaluate("JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)])")
+            assert all(value not in stored for value in forbidden), "registration secrets persisted"
+
+        async def fill_registration(name, invite=invitation, confirmation=None):
+            dialog = page.get_by_role("dialog")
+            await dialog.get_by_label("用户名", exact=True).fill(name)
+            await dialog.get_by_label("密码", exact=True).fill(password)
+            await dialog.get_by_label("确认密码", exact=True).fill(password if confirmation is None else confirmation)
+            await dialog.get_by_label("邀请码", exact=True).fill(invite)
+
+        async def fields_cleared(register=True):
+            dialog = page.get_by_role("dialog")
+            await async_expect(dialog.get_by_label("密码", exact=True)).to_have_value("")
+            if register:
+                await async_expect(dialog.get_by_label("确认密码", exact=True)).to_have_value("")
+                await async_expect(dialog.get_by_label("邀请码", exact=True)).to_have_value("")
+
+        release, submitted = asyncio.Event(), asyncio.Event()
+
+        async def hold_registration(route):
+            # Hold an actual success response; never replace the API outcome.
+            response = await route.fetch()
+            submitted.set()
+            await release.wait()
+            await route.fulfill(response=response)
+
+        try:
+            await page.goto(fixture.base, wait_until="networkidle")
+            launcher = page.get_by_role("button", name="邀请注册", exact=True)
+            await launcher.click()
+            dialog = page.get_by_role("dialog")
+            await async_expect(dialog.get_by_label("用户名", exact=True)).to_be_focused()
+            assert await page.locator(".app-shell").evaluate("element => element.inert")
+            close = dialog.get_by_role("button", name="关闭账户窗口")
+            submit = dialog.get_by_role("button", name="注册并登录", exact=True)
+            await close.focus()
+            await page.keyboard.press("Shift+Tab")
+            await async_expect(submit).to_be_focused()
+            await page.keyboard.press("Tab")
+            await async_expect(close).to_be_focused()
+            await fill_registration(username)
+            await dialog.get_by_role("button", name="切换到登录", exact=True).click()
+            await fields_cleared(register=False)
+            await async_expect(dialog.get_by_label("用户名", exact=True)).to_have_value(username)
+            await dialog.get_by_label("密码", exact=True).fill(password)
+            await dialog.get_by_role("button", name="切换到邀请注册", exact=True).click()
+            await fields_cleared()
+            await fill_registration(username)
+            await close.click()
+            await async_expect(launcher).to_be_focused()
+            await launcher.click()
+            await fields_cleared()
+            await async_expect(dialog.get_by_label("用户名", exact=True)).to_have_value(username)
+            await fill_registration(username)
+            await page.keyboard.press("Escape")
+            await async_expect(dialog).to_have_count(0)
+            await async_expect(launcher).to_be_focused()
+            assert not await page.locator(".app-shell").evaluate("element => element.inert")
+            await launcher.click()
+            await fields_cleared()
+            await fill_registration(username, confirmation=mismatch)
+            await submit.click()
+            await async_expect(dialog.get_by_role("alert")).to_have_text("两次输入的密码不一致，请重新填写。")
+            await fields_cleared()
+            assert len(posts) == 0, "mismatched confirmation made a registration request"
+            await fill_registration(username)
+            for width, height, name in [(1440, 1000, "desktop"), (390, 844, "390"), (320, 740, "320")]:
+                await page.set_viewport_size({"width": width, "height": height})
+                await safe_storage()
+                await page.screenshot(path=str(output / f"registration-open-{name}.png"), full_page=True)
+            await page.route("**/api/v1/auth/register", hold_registration)
+            await submit.click()
+            await asyncio.wait_for(submitted.wait(), timeout=5)
+            await async_expect(dialog).to_have_attribute("aria-busy", "true")
+            await async_expect(close).to_be_disabled()
+            await async_expect(dialog.get_by_label("密码", exact=True)).to_be_disabled()
+            await async_expect(dialog.get_by_role("button", name="切换到登录", exact=True)).to_be_disabled()
+            await page.keyboard.press("Escape")
+            await async_expect(dialog).to_be_visible()
+            await page.keyboard.press("Tab")
+            await async_expect(dialog).to_be_focused()
+            await dialog.locator("form").evaluate("form => form.requestSubmit()")
+            assert len(posts) == 1, "pending registration submitted twice"
+            assert set(posts[0].post_data_json) == {"username", "password", "invite", "claim_anonymous"}, "confirmation sent to the server"
+            release.set()
+            await async_expect(page.get_by_role("region", name="账户与额度").get_by_text(username, exact=True)).to_be_visible()
+            await page.reload(wait_until="networkidle")
+            await async_expect(page.get_by_text(username, exact=True)).to_be_visible()
+            await safe_storage()
+            await page.unroute("**/api/v1/auth/register", hold_registration)
+            await page.get_by_role("button", name="退出", exact=True).click()
+            await async_expect(page.get_by_text("匿名试用", exact=True)).to_be_visible()
+            await launcher.click()
+            await fill_registration(username)
+            await submit.click()
+            await async_expect(dialog.get_by_role("alert")).to_have_text("此用户名已被使用，请换一个用户名。")
+            await fields_cleared()
+            await async_expect(dialog.get_by_label("用户名", exact=True)).to_have_value(username)
+            await fill_registration("other_" + secrets.token_hex(4), invite="invalid-test-invitation")
+            await submit.click()
+            await async_expect(dialog.get_by_role("alert")).to_have_text("邀请码无效或注册已暂停，请确认邀请信息后重试。")
+            await fields_cleared()
+            for _ in range(2):
+                await fill_registration("other_" + secrets.token_hex(4), invite="invalid-test-invitation")
+                await submit.click()
+                await async_expect(dialog.get_by_role("alert")).to_have_text("邀请码无效或注册已暂停，请确认邀请信息后重试。")
+                await fields_cleared()
+            await fill_registration("limited_" + secrets.token_hex(4))
+            await submit.click()
+            await async_expect(dialog.get_by_role("alert")).to_have_text("尝试次数过多，请在十分钟后重试。")
+            await fields_cleared()
+            await safe_storage()
+            assert len(posts) == 6
+
+            async def network_failure(route):
+                await route.abort("connectionfailed")
+
+            await dialog.get_by_role("button", name="切换到登录", exact=True).click()
+            await dialog.get_by_label("密码", exact=True).fill(password)
+            await page.route("**/api/v1/auth/login", network_failure)
+            await dialog.get_by_role("button", name="登录", exact=True).click()
+            await async_expect(dialog.get_by_role("alert")).to_have_text("无法连接服务，请检查网络后重试。")
+            await fields_cleared(register=False)
+            await page.unroute("**/api/v1/auth/login", network_failure)
+            await page.keyboard.press("Escape")
+
+            # Real server configuration closes registration; no success is stubbed.
+            fixture.stop()
+            fixture.env["INVITE_CODE"] = ""
+            fixture.start()
+            await page.reload(wait_until="networkidle")
+            await async_expect(page.get_by_role("region", name="账户与额度").get_by_text("注册暂未开放", exact=True)).to_be_visible()
+            await launcher.click()
+            await async_expect(dialog.get_by_role("heading", name="注册暂未开放", exact=True)).to_be_visible()
+            await async_expect(dialog.locator("form")).to_have_count(0)
+            await async_expect(close).to_be_focused()
+            before = len(posts)
+            for width, height, name in [(1440, 1000, "desktop"), (390, 844, "390"), (320, 740, "320")]:
+                await page.set_viewport_size({"width": width, "height": height})
+                await safe_storage()
+                await page.screenshot(path=str(output / f"registration-closed-{name}.png"), full_page=True)
+            await dialog.get_by_role("button", name="前往登录", exact=True).click()
+            await dialog.get_by_label("用户名", exact=True).fill(username)
+            await dialog.get_by_label("密码", exact=True).fill(password)
+            await dialog.get_by_role("button", name="登录", exact=True).click()
+            await async_expect(page.get_by_text(username, exact=True)).to_be_visible()
+            assert len(posts) == before, "closed registration sent a POST"
+            await safe_storage()
+            assert errors == [], errors
+        finally:
+            release.set()
+            await browser.close()
+    print("PASS: registration confirmation, automatic login, duplicate/invite/rate/network errors, secret cleanup, pending guard, keyboard focus/Esc, closed registration, 1440/390/320 layouts")
+
+
 async def slow_identity_flow(fixture):
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
@@ -320,6 +493,14 @@ def main():
             else:
                 invite_flow(fixture, args.output_dir)
                 asyncio.run(slow_identity_flow(fixture))
+                with tempfile.TemporaryDirectory(prefix="inferlab-registration-") as registration_dir:
+                    registration = Fixture(Path(registration_dir), False)
+                    try:
+                        registration.start()
+                        asyncio.run(registration_flow(registration, args.output_dir))
+                    finally:
+                        registration.stop()
+                        registration.log.close()
         finally:
             fixture.stop()
             fixture.log.close()
