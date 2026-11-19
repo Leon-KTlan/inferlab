@@ -48,6 +48,7 @@ snapshot_database() {
     return 1
   fi
   docker run --rm --user 0:0 --volumes-from "$container" -v "$backup_dir:/backup" --entrypoint /bin/sh "$image_id" -c '
+    set -e
     if [ ! -f /app/data/inferlab.db ]; then exit 2; fi
     cp -p /app/data/inferlab.db "/backup/$(basename "$1")"
     for suffix in -wal -shm; do
@@ -55,7 +56,10 @@ snapshot_database() {
         cp -p "/app/data/inferlab.db${suffix}" "/backup/$(basename "$1")${suffix}"
       fi
     done
-  ' sh "$backup_base"
+  ' sh "$backup_base" || return 1
+  if [[ "$label" == predeploy ]]; then
+    touch "$backup_dir/.last-success" || return 1
+  fi
   echo "SQLite snapshot saved to $backup_base"
 }
 

@@ -4,8 +4,11 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile
+    env_file:
+      - path: ../.env.beta
+        required: false
     environment:
-      APP_ENV: production
+      APP_ENV: ${INFERLAB_APP_ENV:-production}
       LISTEN_ADDR: 0.0.0.0:8080
       DB_PATH: /app/data/inferlab.db
       WEB_DIR: /app/web

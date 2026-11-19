@@ -134,12 +134,12 @@ func (a *App) identify(w http.ResponseWriter, r *http.Request, create bool) (ide
 
 func (a *App) identityMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/api/v1/") || r.URL.Path == "/api/v1/healthz" || strings.HasPrefix(r.URL.Path, "/api/v1/shares/") {
+		if !strings.HasPrefix(r.URL.Path, "/api/v1/") || r.URL.Path == "/api/v1/healthz" || r.URL.Path == "/api/v1/status" || strings.HasPrefix(r.URL.Path, "/api/v1/shares/") {
 			next.ServeHTTP(w, r)
 			return
 		}
 		// Authentication failures and stateless runner capabilities must not mint sessions.
-		create := r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/auth/register" && r.URL.Path != "/api/v1/auth/logout" && r.URL.Path != "/api/v1/auth/setup" && !strings.HasPrefix(r.URL.Path, "/api/v1/admin/") && !strings.HasPrefix(r.URL.Path, "/api/v1/runner-tasks/")
+		create := r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/auth/register" && r.URL.Path != "/api/v1/auth/logout" && r.URL.Path != "/api/v1/auth/setup" && !strings.HasPrefix(r.URL.Path, "/api/v1/admin/") && !strings.HasPrefix(r.URL.Path, "/api/v1/runner-tasks/") && !strings.HasSuffix(r.URL.Path, "/report/export-access") && !strings.HasSuffix(r.URL.Path, "/report.csv")
 		id, err := a.identify(w, r, create)
 		if err != nil {
 			writeError(w, 503, "SESSION_UNAVAILABLE", "could not load session")
@@ -273,7 +273,7 @@ func (a *App) authMe(w http.ResponseWriter, r *http.Request) {
 		}
 		setupRequired = count == 0
 	}
-	writeJSON(w, 200, map[string]any{"username": id.Username, "authenticated": id.UserID != "", "role": id.Role, "login_required": a.secure, "registration_open": config.Enabled && config.InviteConfigured, "setup_required": setupRequired, "quota": quota})
+	writeJSON(w, 200, map[string]any{"username": id.Username, "authenticated": id.UserID != "", "role": id.Role, "login_required": a.secure, "registration_open": config.Enabled && config.InviteConfigured, "setup_required": setupRequired, "quota": quota, "report_csv_enabled": a.payments != nil && id.UserID != ""})
 }
 
 type authInput struct {

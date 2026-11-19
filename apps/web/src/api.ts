@@ -201,6 +201,18 @@ async function getNormalizedRun(id: string): Promise<Run> {
 
 let identityRequest: Promise<Identity> | undefined
 export const api = {
+  publicStatus: (signal?: AbortSignal) => request<{ status: 'operational' | 'degraded'; checked_at: string; support_url?: string }>('/status', { signal, credentials: 'omit', cache: 'no-store' }),
+  reportExportAccess: (id: string) => request<{ access: 'granted' | 'purchase_required'; purchase_url?: string }>(`/runs/${encodeURIComponent(id)}/report/export-access`),
+  downloadReportCSV: async (id: string) => {
+    const res = await fetch(`${API_BASE}/runs/${encodeURIComponent(id)}/report.csv`, { credentials: 'include', cache: 'no-store' })
+    if (!res.ok || !res.headers.get('Content-Type')?.startsWith('text/csv;')) throw new Error('下载失败，请重新检查购买状态。')
+    const url = URL.createObjectURL(await res.blob())
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'inferlab-report.csv'
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  },
   me: () => identityRequest ??= request<Identity>('/auth/me').finally(() => { identityRequest = undefined }),
   register: (input: { username: string; password: string; invite: string; claim_anonymous: boolean }) => request('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
   login: (input: { username: string; password: string }) => request('/auth/login', { method: 'POST', body: JSON.stringify(input) }),
@@ -240,7 +252,7 @@ export const api = {
 
 export interface Quota { limit: number; reserved: number; remaining: number; reset_at: string }
 export interface RegistrationSettings { enabled: boolean; invite_configured: boolean; source: 'database' | 'environment' }
-export interface Identity { username: string; authenticated: boolean; role: '' | 'user' | 'admin'; setup_required: boolean; login_required: boolean; registration_open: boolean; quota: Quota }
+export interface Identity { username: string; authenticated: boolean; role: '' | 'user' | 'admin'; setup_required: boolean; login_required: boolean; registration_open: boolean; report_csv_enabled?: boolean; quota: Quota }
 export interface PublicReport {
   status: RunStatus
   source_type: 'mock' | 'openai_compatible'

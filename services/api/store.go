@@ -8,15 +8,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
 type Store struct {
-	db         *sql.DB
-	dailyLimit int
-	now        func() time.Time
+	db           *sql.DB
+	dailyLimit   int
+	now          func() time.Time
+	taskFailures atomic.Uint64
 }
 
 var errRunAlreadyFinished = errors.New("run is already terminal")
@@ -248,7 +250,13 @@ func (s *Store) saveRun(r Run, sample *Sample, eventType string) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if r.Status == "failed" && eventType != "" {
+		s.taskFailures.Add(1)
+	}
+	return nil
 }
 
 func (s *Store) finishLocalRun(owner string, run Run, eventType string) error {
@@ -284,7 +292,13 @@ func (s *Store) finishLocalRun(owner string, run Run, eventType string) error {
 	if _, err := tx.Exec("INSERT INTO events(run_id,data) VALUES(?,?)", run.RunID, event); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if run.Status == "failed" {
+		s.taskFailures.Add(1)
+	}
+	return nil
 }
 
 func (s *Store) events(runID string, after int64) ([]Event, error) {
