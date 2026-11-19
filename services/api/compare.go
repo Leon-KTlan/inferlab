@@ -31,6 +31,9 @@ type Comparison struct {
 	Comparable    bool              `json:"comparable"`
 	Stages        []StageComparison `json:"stages"`
 	Overall       OverallComparison `json:"overall"`
+	SLO           SLO               `json:"slo"`
+	Verdict       string            `json:"verdict"`
+	FailedStages  []int             `json:"failed_stages"`
 	Notes         []string          `json:"notes"`
 }
 
@@ -51,7 +54,8 @@ func comparisonIssue(baseline, compare Run) (string, string) {
 	}
 	// Names and experiment IDs identify templates, not the workload that was measured.
 	bw, cw := baseline.Config.Workload, compare.Config.Workload
-	if baseline.SourceType != "mock" || compare.SourceType != "mock" || baseline.ResultKind != compare.ResultKind || baseline.SoftwareVersion != compare.SoftwareVersion ||
+	if baseline.SourceType != compare.SourceType || (baseline.SourceType != "mock" && baseline.SourceType != "openai_compatible") ||
+		baseline.ResultKind != compare.ResultKind || baseline.SoftwareVersion != compare.SoftwareVersion ||
 		baseline.Config.Target != compare.Config.Target || baseline.Config.SLO != compare.Config.SLO ||
 		!slices.Equal(bw.ConcurrencySteps, cw.ConcurrencySteps) || bw.StageSeconds != cw.StageSeconds || bw.MaxRequests != cw.MaxRequests || bw.MaxRPS != cw.MaxRPS || bw.TimeoutMS != cw.TimeoutMS {
 		return "CONFIG_MISMATCH", "source, software version, target, workload and SLO snapshots must match"
@@ -108,15 +112,25 @@ func (a *App) compareReports(w http.ResponseWriter, r *http.Request) {
 		Comparable:    true,
 		Stages:        make([]StageComparison, len(compare.StageSummaries)),
 		Overall:       OverallComparison{Baseline: baseline.Metrics, Compare: compare.Metrics, Delta: metricDelta(baseline.Metrics, compare.Metrics)},
+		SLO:           baseline.Config.SLO,
+		Verdict:       "pass",
+		FailedStages:  []int{},
 		Notes: []string{
 			"两次运行的来源、软件版本、目标、负载和 SLO 快照一致；所有阶段均完成且每阶段至少20个样本。",
 			"差值为候选减基线；P95 单位为毫秒，错误率为0到1比例的差，吞吐单位为请求/秒。总体 P95 直接使用各 Run 的总体原始采样统计，不平均阶段 P95。",
 			"这是两次 Mock 采样的观测差异，不代表真实模型服务或版本优化结论。Mock 共享进程内服务，其他 Run、运行时段与主机负载可能影响结果；20个样本只满足展示门槛，不代表统计显著。",
 		},
 	}
+	if compare.SourceType == "openai_compatible" {
+		result.Notes[2] = "指标来自两次本地 Runner 回传，服务端未独立复测。供应商版本、网络和主机负载可能影响结果；观测差异不能证明变更的因果关系。"
+	}
 	for index, stage := range compare.StageSummaries {
 		base := baseline.StageSummaries[index]
 		result.Stages[index] = StageComparison{Stage: stage.Stage, Concurrency: stage.Concurrency, Baseline: base, Compare: stage, Delta: metricDelta(base.Metrics, stage.Metrics)}
+		if sloStatus(stage.Metrics, result.SLO) == "fail" {
+			result.Verdict = "fail"
+			result.FailedStages = append(result.FailedStages, stage.Stage)
+		}
 	}
 	writeJSON(w, http.StatusOK, result)
 }

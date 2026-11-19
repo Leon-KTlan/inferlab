@@ -73,7 +73,7 @@ interface BackendRun {
   finished_at?: string
   error_code?: string
   diagnostics?: RequestDiagnostic[]
-  config?: { workload?: ExperimentInput['load'] }
+  config: Omit<ExperimentInput, 'load'> & { workload: ExperimentInput['load'] }
 }
 
 interface BackendRunnerTask {
@@ -103,6 +103,9 @@ export interface Comparison {
   baseline_run_id: string
   compare_run_id: string
   comparable: boolean
+  slo: ExperimentInput['slo']
+  verdict: 'pass' | 'fail'
+  failed_stages: number[]
   stages: Array<{
     stage: number
     concurrency: number
@@ -119,6 +122,8 @@ export interface Comparison {
 }
 
 export interface Report {
+  template: ExperimentInput
+  experimentId: string
   id?: string
   run_id?: string
   target_type?: 'mock' | 'openai_compatible'
@@ -233,6 +238,8 @@ export const api = {
   getRun: (id: string) => getNormalizedRun(id),
   cancelRun: async (id: string) => { await request(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }); return getNormalizedRun(id) },
   getReport: (id: string) => request<BackendReport>(`/runs/${encodeURIComponent(id)}/report`).then(raw => ({
+    template: { name: raw.config.name, target: raw.config.target, load: raw.config.workload, slo: raw.config.slo },
+    experimentId: raw.experiment_id,
     id: raw.run_id,
     run_id: raw.run_id,
     target_type: raw.source_type,

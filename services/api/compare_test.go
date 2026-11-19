@@ -132,6 +132,7 @@ func TestComparisonRejectsInvalidRuns(t *testing.T) {
 		{"different rps", func(r *Run) { r.Config.Workload.MaxRPS++ }, "CONFIG_MISMATCH"},
 		{"different stages", func(r *Run) { r.Config.Workload.ConcurrencySteps = []int{1, 4} }, "CONFIG_MISMATCH"},
 		{"different target", func(r *Run) { r.Config.Target.Model = "other-model" }, "CONFIG_MISMATCH"},
+		{"mixed source", func(r *Run) { r.SourceType = "openai_compatible" }, "CONFIG_MISMATCH"},
 		{"different slo", func(r *Run) { r.Config.SLO.P95E2EMS++ }, "CONFIG_MISMATCH"},
 		{"different version", func(r *Run) { r.SoftwareVersion = "other-version" }, "CONFIG_MISMATCH"},
 		{"running", func(r *Run) { r.Status = "running" }, "RUN_NOT_FINISHED"},
@@ -177,6 +178,54 @@ func TestComparisonRejectsInvalidRuns(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestComparisonRunnerVerdict(t *testing.T) {
+	t.Setenv("PAYMENTS_ENABLED", "false")
+	app, err := newApp(":memory:", nil, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	owner := newID("visitor")
+	baseline := persistedComparisonRun(t, app.store, owner, 0)
+	candidate := persistedComparisonRun(t, app.store, owner, 0)
+	for _, run := range []*Run{&baseline, &candidate} {
+		run.SourceType, run.ResultKind = "openai_compatible", "measured"
+		run.Config.Target = Target{Type: "openai_compatible", Endpoint: "https://example.invalid/v1", Model: "fixture"}
+		run.Config.SLO = SLO{P95E2EMS: 500, ErrorRateMax: 0.05}
+		if err := app.store.saveRun(*run, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(verdict string, failedStage int) {
+		t.Helper()
+		req := httptest.NewRequest("GET", "/api/v1/reports/"+candidate.RunID+"/compare?baseline_run_id="+baseline.RunID, nil)
+		req.AddCookie(&http.Cookie{Name: "inferlab_session", Value: owner + "." + app.sign(owner)})
+		rec := httptest.NewRecorder()
+		app.ServeHTTP(rec, req)
+		var result Comparison
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("comparison returned %d: %v", rec.Code, err)
+		}
+		if !result.Comparable || result.Verdict != verdict || result.SLO != baseline.Config.SLO {
+			t.Fatalf("unexpected verdict: %+v", result)
+		}
+		if failedStage == 0 && len(result.FailedStages) != 0 ||
+			failedStage != 0 && (len(result.FailedStages) != 1 || result.FailedStages[0] != failedStage) {
+			t.Fatalf("unexpected failed stages: %v", result.FailedStages)
+		}
+	}
+	candidate.StageSummaries[0].P95E2EMS = 500
+	if err := app.store.saveRun(candidate, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	check("pass", 0)
+	candidate.StageSummaries[0].P95E2EMS++
+	if err := app.store.saveRun(candidate, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	check("fail", 1)
 }
 
 func TestComparisonInputAndOwnership(t *testing.T) {
