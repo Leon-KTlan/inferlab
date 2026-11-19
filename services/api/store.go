@@ -21,7 +21,7 @@ type Store struct {
 
 var errRunAlreadyFinished = errors.New("run is already terminal")
 
-const currentSchemaVersion = 2
+const currentSchemaVersion = 3
 
 func openStore(path string) (*Store, error) {
 	if path != ":memory:" {
@@ -83,6 +83,12 @@ func (s *Store) migrate() error {
 
 func applySchemaMigration(tx *sql.Tx, version int) error {
 	switch version {
+	case 3:
+		_, err := tx.Exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','admin'));
+CREATE UNIQUE INDEX users_single_admin ON users(role) WHERE role='admin';
+CREATE TABLE registration_settings (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), invite_hash TEXT NOT NULL);
+CREATE TABLE admin_audit (id INTEGER PRIMARY KEY, operation TEXT NOT NULL, actor_id TEXT NOT NULL REFERENCES users(id), at INTEGER NOT NULL, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)));`)
+		return err
 	case 2:
 		_, err := tx.Exec(`CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash BLOB NOT NULL);
 CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, owner TEXT NOT NULL, user_id TEXT REFERENCES users(id), expires_at INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);

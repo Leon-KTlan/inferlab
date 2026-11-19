@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -25,6 +24,7 @@ type identity struct {
 	Owner     string
 	UserID    string
 	Username  string
+	Role      string
 	TokenHash string
 	Legacy    bool
 }
@@ -62,7 +62,7 @@ func (a *App) identify(w http.ResponseWriter, r *http.Request, create bool) (ide
 	now := a.store.now().Unix()
 	if cookie, err := r.Cookie("inferlab_session"); err == nil && len(cookie.Value) <= 160 {
 		id := identity{TokenHash: hashToken(cookie.Value)}
-		err := a.store.db.QueryRow(`SELECT s.owner,COALESCE(s.user_id,''),COALESCE(u.username,'') FROM sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND s.revoked=0`, id.TokenHash, now).Scan(&id.Owner, &id.UserID, &id.Username)
+		err := a.store.db.QueryRow(`SELECT s.owner,COALESCE(s.user_id,''),COALESCE(u.username,''),COALESCE(u.role,'') FROM sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND s.revoked=0`, id.TokenHash, now).Scan(&id.Owner, &id.UserID, &id.Username, &id.Role)
 		if err == nil {
 			return id, nil
 		}
@@ -139,7 +139,7 @@ func (a *App) identityMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		// Authentication failures and stateless runner capabilities must not mint sessions.
-		create := r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/auth/register" && r.URL.Path != "/api/v1/auth/logout" && !strings.HasPrefix(r.URL.Path, "/api/v1/runner-tasks/")
+		create := r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/auth/register" && r.URL.Path != "/api/v1/auth/logout" && r.URL.Path != "/api/v1/auth/setup" && !strings.HasPrefix(r.URL.Path, "/api/v1/admin/") && !strings.HasPrefix(r.URL.Path, "/api/v1/runner-tasks/")
 		id, err := a.identify(w, r, create)
 		if err != nil {
 			writeError(w, 503, "SESSION_UNAVAILABLE", "could not load session")
@@ -259,7 +259,21 @@ func (a *App) authMe(w http.ResponseWriter, r *http.Request) {
 		a.readError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"username": id.Username, "authenticated": id.UserID != "", "login_required": a.secure, "registration_open": os.Getenv("INVITE_CODE") != "", "quota": quota})
+	config, err := readRegistrationConfig(a.store.db)
+	if err != nil {
+		a.readError(w, err)
+		return
+	}
+	setupRequired := false
+	if a.localSetupAllowed(r) {
+		var count int
+		if err = a.store.db.QueryRow("SELECT count(*) FROM users WHERE role='admin'").Scan(&count); err != nil {
+			a.readError(w, err)
+			return
+		}
+		setupRequired = count == 0
+	}
+	writeJSON(w, 200, map[string]any{"username": id.Username, "authenticated": id.UserID != "", "role": id.Role, "login_required": a.secure, "registration_open": config.Enabled && config.InviteConfigured, "setup_required": setupRequired, "quota": quota})
 }
 
 type authInput struct {
@@ -282,8 +296,12 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "INVALID_ACCOUNT", "username must be 3-32 ASCII letters, digits or underscores; password must be 12-72 bytes")
 		return
 	}
-	expected := os.Getenv("INVITE_CODE")
-	if expected == "" || !hmac.Equal([]byte(hashToken(input.Invite)), []byte(hashToken(expected))) {
+	config, err := readRegistrationConfig(a.store.db)
+	if err != nil {
+		writeError(w, 503, "AUTH_UNAVAILABLE", "registration temporarily unavailable")
+		return
+	}
+	if !config.accepts(input.Invite) {
 		writeError(w, 403, "INVITE_INVALID", "registration requires a valid invitation")
 		return
 	}
@@ -301,7 +319,11 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID, token := newID("user"), newID("session")
-	err = a.store.registerAccount(id, input, userID, hash, hashToken(token))
+	err = a.store.registerAccountTransaction(id, input, userID, hash, hashToken(token), true)
+	if errors.Is(err, errInviteInvalid) {
+		writeError(w, 403, "INVITE_INVALID", "registration requires a valid invitation")
+		return
+	}
 	if errors.Is(err, errUsernameTaken) {
 		writeError(w, 409, "USERNAME_UNAVAILABLE", "username is unavailable")
 		return
@@ -403,11 +425,24 @@ func currentOwner(tx *sql.Tx, owner string) (string, error) {
 }
 
 func (s *Store) registerAccount(id identity, input authInput, userID string, hash []byte, tokenHash string) error {
+	return s.registerAccountTransaction(id, input, userID, hash, tokenHash, false)
+}
+
+func (s *Store) registerAccountTransaction(id identity, input authInput, userID string, hash []byte, tokenHash string, checkInvite bool) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if checkInvite {
+		config, err := readRegistrationConfig(tx)
+		if err != nil {
+			return err
+		}
+		if !config.accepts(input.Invite) {
+			return errInviteInvalid
+		}
+	}
 	var count int
 	if err = tx.QueryRow("SELECT count(*) FROM users WHERE username=?", input.Username).Scan(&count); err != nil {
 		return err

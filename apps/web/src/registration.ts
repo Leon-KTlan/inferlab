@@ -15,6 +15,12 @@ export function validateRegistration(username: string, password: string, confirm
   return ''
 }
 
+export function validateNewInvite(invite: string): string {
+  const bytes = new TextEncoder().encode(invite).length
+  if (bytes < 8 || bytes > 256 || !invite.trim() || /[\u0000-\u001f\u007f-\u009f]/u.test(invite)) return '新邀请码须为 8–256 UTF-8 字节，不能全为空白或含控制字符。'
+  return ''
+}
+
 export function accountErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.code) {
@@ -26,6 +32,12 @@ export function accountErrorMessage(error: unknown): string {
       case 'SESSION_CHANGED': return '当前匿名身份已变更，请刷新页面后重试。'
       case 'ALREADY_SIGNED_IN': return '当前已登录，请刷新页面查看账户。'
       case 'CROSS_SITE_REQUEST': return '当前页面来源校验失败，请从本站重新打开后重试。'
+      case 'SETUP_FORBIDDEN': return '初始化未获授权，请确认部署令牌或从本机直接访问。'
+      case 'SETUP_COMPLETE': return '站点已初始化，请关闭窗口并刷新页面。'
+      case 'ADMIN_REQUIRED': return '仅管理员可修改站点设置，请重新登录。'
+      case 'INVITE_REQUIRED': return '请先设置邀请码，再开放注册。'
+      case 'INVALID_REGISTRATION_SETTINGS': return '请检查邀请码长度及字符后重试。'
+      case 'SETTINGS_UNAVAILABLE': return '设置未保存，请稍后重试。'
     }
     if (error.status === 0) return '无法连接服务，请检查网络后重试。'
   }
