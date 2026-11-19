@@ -98,6 +98,8 @@ jobs:
         run: npm run build
       - name: Invitation workflow smoke
         run: python scripts/stage3_smoke.py
+      - name: Registration settings workflow smoke
+        run: python scripts/registration_settings_smoke.py
 
   container:
     name: Container build

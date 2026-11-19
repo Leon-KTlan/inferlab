@@ -46,7 +46,7 @@ npm run dev
 
 ## 邀请测试配置
 
-在 API 进程环境中提供 `INVITE_CODE` 才开启邀请注册，未配置则关闭；请通过环境管理工具注入，不写入仓库或日志。`DAILY_REQUEST_LIMIT` 为每身份 UTC 每日预留上限，默认 10000。密码使用 bcrypt，长度 12–72 字节，不截断。邀请值、密码和会话 token 不存入浏览器存储；会话使用 HttpOnly cookie。
+管理员可在“站点设置 → 注册管理”开放或关闭邀请注册、更换邀请码。数据库尚未保存设置时回退 API 环境中的 `INVITE_CODE`，未配置则关闭；首次保存后以数据库为准，重启仍保留。新邀请码为 8–256 UTF-8 字节，不接受全空白或控制字符；旧部署邀请码保持兼容。关闭保留邀请码，换码立即使旧码失效，已有账户和会话不受影响。请先复制保存新码，提交后不再显示；服务端只保存摘要。`DAILY_REQUEST_LIMIT` 为每身份 UTC 每日预留上限，默认 10000。密码使用 bcrypt，长度 12–72 字节，不截断。邀请值、密码和会话 token 不存入浏览器存储；会话使用 HttpOnly cookie。
 
 local 允许匿名试用，staging/production 启动 Mock 或创建本地 Runner 任务须登录。注册可原子认领当前匿名实验、活跃任务和累计额度一次；登录已有账户不会合并匿名数据，并使原匿名会话失效。请在切换账户前保存需要的匿名报告。当前没有密码重置、邮件或账户找回。
 
@@ -54,7 +54,11 @@ local 允许匿名试用，staging/production 启动 Mock 或创建本地 Runner
 
 反向代理须保留原 Host；写 API 校验同源 Origin，身份写接口必须使用 `application/json`。登录/注册在 KDF 前以实际连接 IP 限制十分钟五次尝试，登录另限制用户名；不信任 XFF，代理后的用户可能共享 IP 桶，须在 staging 验证实际拓扑。限流持久化并限制桶数量，过期会话/桶分批清理。
 
-SQLite 会自动从 v1 事务迁移到 v2并保留记录。部署前用 SQLite backup 备份，停止写入后部署；启动时原有未结束任务仍按既有规则标记中断，不会重复执行。回滚须恢复迁移前数据库备份与旧二进制，不能直接降低 `user_version`。详见 `docs/specs/010-invite-testing.md`。
+SQLite 会自动事务迁移到 v3 并保留记录，现有账户全部为普通用户，首个注册用户不会自动成为管理员。部署前用 SQLite backup 备份，停止写入后部署；启动时原有未结束任务仍按既有规则标记中断，不会重复执行。回滚须恢复迁移前数据库备份与旧二进制，不能直接降低 `user_version`。详见 `docs/specs/010-invite-testing.md`、`docs/specs/012-registration-settings.md`。
+
+首次本机直接访问 Go 静态服务会显示“初始化站点”，创建独立管理员并自动登录，不覆盖或提升已有账户。免令牌初始化仅限 `APP_ENV` 为空或 `local`、实际连接和精确 Host 均为 loopback/localhost、且无转发头。Vite 默认代理保留 Host、不加转发头，可使用同一流程；外部代理与隧道需部署令牌。切换账户前先保存需要的匿名报告。
+
+staging/production 以及其它非 local 环境始终要求部署环境注入 `ADMIN_SETUP_TOKEN`，缺失时无法初始化；登录框中的“初始化站点”提供令牌输入。令牌只在本次 JSON 请求中发送，不写入 URL、日志或浏览器存储。初始化限每真实连接 IP 十分钟五次，完成后令牌也不能再创建管理员；公网身份接口不暴露是否缺少管理员。请通过部署环境管理工具注入密钥，不在终端命令或仓库写明文。
 
 ## 本地执行真实 API 任务
 
@@ -104,6 +108,9 @@ cd apps/web && npm run lint && npm run check
 cd ../../services/api && go vet ./... && go test ./... && go test -race ./...
 cd ../.. && python3 scripts/stage3_smoke.py
 python3 scripts/stage3_smoke.py --legacy
+python3 scripts/registration_settings_smoke.py
 ```
 
 需要 Python Playwright 和 Chromium。新 smoke 自建临时 API，验证真实注册→Mock→分享→独立访客→重启→撤销→配额→删除→登录恢复，以及延迟身份响应场景。`--legacy` 使用原 `scripts/ui_smoke.py`，通过测试进程内 HTTP 转发 fixture 将其固定 4173 origin 指向隔离 API；原脚本与断言不改，也不访问现有 8080/4173 服务。
+
+`registration_settings_smoke.py` 另从无管理员、无邀请码的临时数据库验证初始化、配置、独立访客注册、角色权限、换码、关闭、重启恢复、部署令牌入口、窄屏与敏感信息不落盘。安全重启步骤见 `docs/tasks/registration-settings/RESTART.md`。

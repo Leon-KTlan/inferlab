@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from './api'
-import { accountErrorMessage, validateRegistration } from './registration'
+import { accountErrorMessage, validateNewInvite, validateRegistration } from './registration'
 
 describe('invitation registration', () => {
+  it('validates new administrator invitations without changing legacy registration validation', () => {
+    for (const invite of ['1234567', ' '.repeat(8), '\uFEFF'.repeat(3), '12345678\n', '12345678\u0085', 'x'.repeat(257)]) expect(validateNewInvite(invite)).toContain('8–256')
+    for (const invite of ['12345678', 'x'.repeat(256), '界'.repeat(3), ' leading-space ']) expect(validateNewInvite(invite)).toBe('')
+    expect(validateRegistration('alice', 'test-password-fixture', 'test-password-fixture', 'old')).toBe('')
+  })
   it('requires an exact password confirmation and invitation', () => {
     expect(validateRegistration('alice', 'test-password-fixture', 'different-password', 'fixture')).toBe('两次输入的密码不一致，请重新填写。')
     expect(validateRegistration('alice', 'test-password-fixture', 'test-password-fixture', '')).toBe('请填写邀请码。')

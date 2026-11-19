@@ -205,6 +205,9 @@ export const api = {
   register: (input: { username: string; password: string; invite: string; claim_anonymous: boolean }) => request('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
   login: (input: { username: string; password: string }) => request('/auth/login', { method: 'POST', body: JSON.stringify(input) }),
   logout: () => request('/auth/logout', { method: 'POST', body: '{}' }),
+  setup: (input: { username: string; password: string; setup_token: string }) => request('/auth/setup', { method: 'POST', body: JSON.stringify(input) }),
+  registrationSettings: () => request<RegistrationSettings>('/admin/registration'),
+  saveRegistrationSettings: (input: { enabled: boolean; invite: string }) => request<RegistrationSettings>('/admin/registration', { method: 'PUT', body: JSON.stringify(input) }),
   listExperiments: () => request<{ experiments: BackendExperiment[] }>('/experiments').then(body => body.experiments),
   deleteRun: (id: string) => request(`/runs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   deleteExperiment: (id: string) => request(`/experiments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -236,7 +239,8 @@ export const api = {
 }
 
 export interface Quota { limit: number; reserved: number; remaining: number; reset_at: string }
-export interface Identity { username: string; authenticated: boolean; login_required: boolean; registration_open: boolean; quota: Quota }
+export interface RegistrationSettings { enabled: boolean; invite_configured: boolean; source: 'database' | 'environment' }
+export interface Identity { username: string; authenticated: boolean; role: '' | 'user' | 'admin'; setup_required: boolean; login_required: boolean; registration_open: boolean; quota: Quota }
 export interface PublicReport {
   status: RunStatus
   source_type: 'mock' | 'openai_compatible'
