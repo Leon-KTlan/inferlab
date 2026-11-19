@@ -102,6 +102,8 @@ jobs:
         run: python scripts/registration_settings_smoke.py
       - name: Public Beta browser smoke
         run: python -B scripts/public_beta_smoke.py
+      - name: Version regression browser smoke
+        run: python -B scripts/version_regression_smoke.py
       - name: Independent alert delivery
         run: python -B scripts/ops_monitor_test.py
 
