@@ -25,6 +25,8 @@ type App struct {
 	secure      bool
 	handler     http.Handler
 	credentials runnerCredentials
+	payments    *watchaAccess
+	ops         opsCounters
 }
 
 func newID(prefix string) string {
@@ -36,6 +38,10 @@ func newID(prefix string) string {
 }
 
 func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (*App, error) {
+	payments, err := configuredWatcha()
+	if err != nil {
+		return nil, err
+	}
 	if secureEnv && len(secret) < 32 {
 		return nil, errors.New("SESSION_SECRET must contain at least 32 bytes in staging or production")
 	}
@@ -64,10 +70,12 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 	if err != nil {
 		return cleanup(err)
 	}
-	a := &App{store: store, runner: newRunner(store, mock), mock: mock, secret: secret, secure: secureEnv}
+	a := &App{store: store, runner: newRunner(store, mock), mock: mock, secret: secret, secure: secureEnv, payments: payments}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /api/v1/healthz", a.health)
+	mux.HandleFunc("GET /internal/ops/metrics", a.opsMetrics(os.Getenv("OPS_METRICS_TOKEN")))
+	mux.HandleFunc("GET /api/v1/status", a.publicStatus(os.Getenv("PUBLIC_SUPPORT_URL")))
 	mux.HandleFunc("GET /api/v1/auth/me", a.authMe)
 	mux.HandleFunc("POST /api/v1/auth/register", a.register)
 	mux.HandleFunc("POST /api/v1/auth/login", a.login)
@@ -92,6 +100,8 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 	mux.HandleFunc("POST /api/v1/runner-tasks/{id}/credential", a.claimRunnerCredential)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", a.getEvents)
 	mux.HandleFunc("GET /api/v1/runs/{id}/report", a.getReport)
+	mux.HandleFunc("GET /api/v1/runs/{id}/report/export-access", a.reportExportAccess)
+	mux.HandleFunc("GET /api/v1/runs/{id}/report.csv", a.reportCSV)
 	mux.HandleFunc("GET /api/v1/reports/{id}/compare", a.compareReports)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "API route not found")
@@ -105,6 +115,9 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 	}
 	apiHandler := a.identityMiddleware(mux)
 	a.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w = &failureWriter{ResponseWriter: w, count: &a.ops.httpFailures}
+		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")

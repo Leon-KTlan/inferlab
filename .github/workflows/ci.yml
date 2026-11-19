@@ -100,6 +100,10 @@ jobs:
         run: python scripts/stage3_smoke.py
       - name: Registration settings workflow smoke
         run: python scripts/registration_settings_smoke.py
+      - name: Public Beta browser smoke
+        run: python -B scripts/public_beta_smoke.py
+      - name: Independent alert delivery
+        run: python -B scripts/ops_monitor_test.py
 
   container:
     name: Container build

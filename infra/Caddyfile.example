@@ -1,5 +1,6 @@
 example.com {
     encode gzip
+    respond /internal/* 404
     # Set INFERLAB_HTTP_PORT in the proxy environment for staging/production.
     reverse_proxy 127.0.0.1:{$INFERLAB_HTTP_PORT:8080}
 }
