@@ -54,7 +54,7 @@ docker compose -f infra/worker-compose.yml up --build -d
 
 ## 最小 Nginx 代理
 
-现有staging阻断所有runner-tasks；不修改这条阻断也可以开放新Agent协议。`infra/dual-execution-nginx.conf.example` 分别给出 http层限流zone、公共站点两条精确匹配路由，以及独立TLS控制站点。仅新增runner-claims和规范化Run ID的execution-leases/control|result，禁止暴露整个runner-tasks或internal前缀。其余experiments/executions、capabilities走原已鉴权API代理。保留Host，不信任转发IP；现有限流在反向代理下可能共用桶，因此代理级限流必须先验收。静态站点与API必须同源。控制站点仅允许Worker出口IP，仍需Worker身份令牌；不要把internal路由加到公共站点。控制与领取响应禁缓存、禁请求体/敏感头日志。
+现有staging阻断所有runner-tasks；不修改这条阻断也可以开放新Agent协议。`infra/dual-execution-nginx.conf.example` 分别给出 http层限流zone、公共站点两条精确匹配路由，以及独立TLS控制站点。仅新增runner-claims和规范化Run ID的execution-leases/control|result，禁止暴露整个runner-tasks或internal前缀。其余experiments/executions、capabilities走原已鉴权API代理。保留Host，不信任转发IP；API失败桶仅限制无效领取，有效单次码通过任务和账户校验后不受共享失败桶阻断；代理级按客户端限流仍须staging验收。静态站点与API必须同源。控制站点仅允许Worker出口IP，仍需Worker身份令牌；不要把internal路由加到公共站点。控制与领取响应禁缓存、禁请求体/敏感头日志。
 
 ## 配置、回滚、未决
 

@@ -291,6 +291,12 @@ func (a *App) claimExecution(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	a.expireExecutionsLocked(time.Now())
+	e := d.entries[in.RunID]
+	if e != nil && e.task.Execution.Mode == "local_agent" && !e.claimed && hmac.Equal([]byte(e.codeHash), []byte(hashToken(in.Code))) && (requestIdentity(r).Owner == "" || requestIdentity(r).Owner == e.owner) {
+		// A proxy's shared IP failure bucket must not lock out valid one-time claims.
+		a.claimExecutionLocked(w, e)
+		return
+	}
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 	bucket := hashToken(ip)
 	now := time.Now()
@@ -309,12 +315,7 @@ func (a *App) claimExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.rates[bucket] = rate
-	e := d.entries[in.RunID]
-	if e == nil || e.task.Execution.Mode != "local_agent" || e.claimed || !hmac.Equal([]byte(e.codeHash), []byte(hashToken(in.Code))) || (requestIdentity(r).Owner != "" && requestIdentity(r).Owner != e.owner) {
-		writeError(w, 403, "CLAIM_INVALID", "私人领取码无效、过期、已使用或不属于当前账户。")
-		return
-	}
-	a.claimExecutionLocked(w, e)
+	writeError(w, 403, "CLAIM_INVALID", "私人领取码无效、过期、已使用或不属于当前账户。")
 }
 func (a *App) workerPoll(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")

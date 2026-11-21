@@ -28,12 +28,13 @@ if ! docker run --rm --read-only --tmpfs /tmp --security-opt no-new-privileges \
   -e CONTROL_IP=203.0.113.99 -e CONTROL_ORIGIN=https://control.example \
   inferlab-dual-worker:local --verify-only > "$evidence/worker-isolation.txt" 2>&1; then cat "$evidence/worker-isolation.txt"; exit 1; fi
 echo 'PASS Worker egress and privilege probes'
+run_check 'Worker DNS on Compose-style network' sh scripts/worker_dns_smoke.sh
 "${BROWSER_PYTHON:-python3}" - "$acceptance_tmp/go-test.jsonl" "$evidence/acceptance.json" <<'PY'
 import datetime, json, sys
 from pathlib import Path
 records = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
 passed = [r['Test'] for r in records if r.get('Action') == 'pass' and 'Test' in r]
-Path(sys.argv[2]).write_text(json.dumps({'result': 'passed', 'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'go_tests_including_subtests': len(passed), 'dual_execution_tests': [t for t in passed if t.startswith('TestDualExecution')], 'checks': ['go vet', 'go test', 'go test -race', 'npm lint (tsc)', 'npm typecheck', 'npm build', 'npm test', 'real TLS two-mode browser round trip', 'Docker network and zero-capability probes'], 'provider_calls': 0, 'production_changes': False}, indent=2) + '\n')
+Path(sys.argv[2]).write_text(json.dumps({'result': 'passed', 'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'go_tests_including_subtests': len(passed), 'dual_execution_tests': [t for t in passed if t.startswith('TestDualExecution')], 'checks': ['go vet', 'go test', 'go test -race', 'npm lint (tsc)', 'npm typecheck', 'npm build', 'npm test', 'real TLS two-mode browser round trip', 'Docker network and zero-capability probes', 'Worker DNS after isolation on Compose-style network'], 'provider_calls': 0, 'production_changes': False}, indent=2) + '\n')
 PY
 git diff --check
 echo "Dual execution acceptance passed. Evidence: $evidence"

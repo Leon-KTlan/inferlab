@@ -126,6 +126,28 @@ func (f *dualFixture) startWorker(t *testing.T) context.CancelFunc {
 	t.Fatal("worker not online")
 	return cancel
 }
+func TestDualExecutionValidClaimSurvivesSharedProxyRateLimit(t *testing.T) {
+	f := newDualFixture(t, nil)
+	run, code := f.create(t, "local_agent")
+	for attempt := 0; attempt < 11; attempt++ {
+		status, _ := f.request(t, "POST", "/api/v1/runner-claims", map[string]string{"run_id": run.RunID, "code": "wrong"}, "")
+		want := http.StatusForbidden
+		if attempt == 10 {
+			want = http.StatusTooManyRequests
+		}
+		if status != want {
+			t.Fatalf("invalid claim %d returned %d; want %d", attempt, status, want)
+		}
+	}
+	status, _ := f.request(t, "POST", "/api/v1/runner-claims", map[string]string{"run_id": run.RunID, "code": code}, "")
+	if status != http.StatusOK {
+		t.Fatalf("valid claim behind same proxy returned %d; want 200", status)
+	}
+	status, _ = f.request(t, "POST", "/api/v1/runner-claims", map[string]string{"run_id": run.RunID, "code": "wrong"}, "")
+	if status != http.StatusTooManyRequests {
+		t.Fatalf("invalid claims no longer limited: %d", status)
+	}
+}
 func (f *dualFixture) wait(t *testing.T, id string) Run {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

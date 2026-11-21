@@ -1,8 +1,9 @@
 {
   "result": "passed",
-  "utc": "2026-11-21T06:38:41.536433+00:00",
-  "go_tests_including_subtests": 152,
+  "utc": "2026-11-21T14:51:08.057302+00:00",
+  "go_tests_including_subtests": 153,
   "dual_execution_tests": [
+    "TestDualExecutionValidClaimSurvivesSharedProxyRateLimit",
     "TestDualExecutionTLSRoundTrip/platform",
     "TestDualExecutionTLSRoundTrip/local_agent",
     "TestDualExecutionTLSRoundTrip",
@@ -30,7 +31,8 @@
     "npm build",
     "npm test",
     "real TLS two-mode browser round trip",
-    "Docker network and zero-capability probes"
+    "Docker network and zero-capability probes",
+    "Worker DNS after isolation on Compose-style network"
   ],
   "provider_calls": 0,
   "production_changes": false
