@@ -593,3 +593,15 @@ func TestDualExecutionExpiryClearsSecretsWithUnavailableStorage(t *testing.T) {
 		t.Fatal("expired credential retained after database failure")
 	}
 }
+
+func TestDualExecutionWorkerResponseNeverCached(t *testing.T) {
+	f := newDualFixture(t, nil)
+	req := httptest.NewRequest("POST", "/internal/worker/poll", strings.NewReader(`{"instance":"worker_cache_probe"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-InferLab-Worker-Token", strings.Repeat("test-worker-", 4))
+	rec := httptest.NewRecorder()
+	f.app.ServeHTTP(rec, req)
+	if rec.Code != 204 || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("worker credential response may be cached")
+	}
+}

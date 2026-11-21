@@ -317,6 +317,7 @@ func (a *App) claimExecution(w http.ResponseWriter, r *http.Request) {
 	a.claimExecutionLocked(w, e)
 }
 func (a *App) workerPoll(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	d := &a.executions
 	if !d.enabled || !hmac.Equal([]byte(r.Header.Get("X-InferLab-Worker-Token")), []byte(d.workerToken)) {
 		writeError(w, 403, "WORKER_UNAUTHORIZED", "worker identity required")
