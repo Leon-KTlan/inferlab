@@ -23,3 +23,8 @@
 .beta-page p,.beta-export p{line-height:1.7;margin:8px 0 12px}
 .beta-draft{border-left:3px solid #af681b;padding-left:12px}
 .beta-export{margin-bottom:18px}.beta-export [role=status]:not(:empty){margin-top:10px}
+
+/* Execution source labels may contain a full local observation identifier. */
+.report-head .mock-badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.runner-handoff details { margin-top: 18px; }
+.runner-handoff p { overflow-wrap: anywhere; }

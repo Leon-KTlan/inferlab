@@ -1,0 +1,77 @@
+{
+  "result": "passed",
+  "source": "isolated local Go Mock runner",
+  "run_id": "run_2zBvwpl5QdnWtXo_iF80WlYUP1dvS28F",
+  "stages": [
+    {
+      "stage": 1,
+      "concurrency": 1,
+      "request_count": 31,
+      "completed_count": 31,
+      "success_count": 29,
+      "error_count": 2,
+      "p50_e2e_ms": 65.395,
+      "p95_e2e_ms": 80.664,
+      "error_rate": 0.06451612903225806,
+      "throughput_rps": 15.492041931710204,
+      "duration_seconds": 2.001027375,
+      "slo_status": "fail"
+    },
+    {
+      "stage": 2,
+      "concurrency": 5,
+      "request_count": 74,
+      "completed_count": 74,
+      "success_count": 65,
+      "error_count": 9,
+      "p50_e2e_ms": 122.435,
+      "p95_e2e_ms": 141.094,
+      "error_rate": 0.12162162162162163,
+      "throughput_rps": 36.91926986937218,
+      "duration_seconds": 2.004373333,
+      "slo_status": "fail"
+    },
+    {
+      "stage": 3,
+      "concurrency": 10,
+      "request_count": 77,
+      "completed_count": 77,
+      "success_count": 67,
+      "error_count": 10,
+      "p50_e2e_ms": 135.608,
+      "p95_e2e_ms": 147.462,
+      "error_rate": 0.12987012987012986,
+      "throughput_rps": 38.440019155110846,
+      "duration_seconds": 2.00312075,
+      "slo_status": "fail"
+    },
+    {
+      "stage": 4,
+      "concurrency": 20,
+      "request_count": 76,
+      "completed_count": 76,
+      "success_count": 67,
+      "error_count": 9,
+      "p50_e2e_ms": 135.682,
+      "p95_e2e_ms": 155.547,
+      "error_rate": 0.11842105263157894,
+      "throughput_rps": 37.92630681546338,
+      "duration_seconds": 2.003886125,
+      "slo_status": "fail"
+    }
+  ],
+  "widths": [
+    1440,
+    390,
+    320
+  ],
+  "fixture_cases": [
+    "empty",
+    "single",
+    "zero",
+    "gap"
+  ],
+  "keyboard": "Tab moves between measured points and updates the readout",
+  "reload": "same report restored",
+  "page_errors": []
+}

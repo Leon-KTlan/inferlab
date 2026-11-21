@@ -1,0 +1,13 @@
+{
+  "result": "passed",
+  "script": "scripts/ui_smoke.py",
+  "assertions": "unchanged",
+  "environment": "isolated local API and temporary DB; installed Chrome selected at browser launch",
+  "coverage": [
+    "real Mock report comparison",
+    "advanced manual CLI download and copy",
+    "key/token absence in storage and URL",
+    "refresh clears task token",
+    "cancel and diagnostic views"
+  ]
+}

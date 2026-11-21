@@ -52,6 +52,11 @@ func comparisonIssue(baseline, compare Run) (string, string) {
 	if baseline.Status != "succeeded" || compare.Status != "succeeded" {
 		return "RUN_NOT_SUCCEEDED", "both runs must succeed; canceled or failed runs cannot establish a baseline"
 	}
+	if baseline.SourceType == "openai_compatible" && (baseline.Execution != nil || compare.Execution != nil) {
+		if baseline.Execution == nil || compare.Execution == nil || *baseline.Execution != *compare.Execution {
+			return "EXECUTION_SOURCE_MISMATCH", "execution mode, location and trust must match; legacy locations are unknown"
+		}
+	}
 	// Names and experiment IDs identify templates, not the workload that was measured.
 	bw, cw := baseline.Config.Workload, compare.Config.Workload
 	if baseline.SourceType != compare.SourceType || (baseline.SourceType != "mock" && baseline.SourceType != "openai_compatible") ||
@@ -122,7 +127,10 @@ func (a *App) compareReports(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if compare.SourceType == "openai_compatible" {
-		result.Notes[2] = "指标来自两次本地 Runner 回传，服务端未独立复测。供应商版本、网络和主机负载可能影响结果；观测差异不能证明变更的因果关系。"
+		result.Notes[2] = "指标来自两次相同执行来源的采样。供应商版本、网络和主机负载可能影响结果；观测差异不能证明变更的因果关系。"
+		if baseline.Execution == nil {
+			result.Notes = append(result.Notes, "历史 Runner 记录的测量位置未知；仅保留旧协议对比兼容性，不证明两次在同一位置测量。")
+		}
 	}
 	for index, stage := range compare.StageSummaries {
 		base := baseline.StageSummaries[index]
