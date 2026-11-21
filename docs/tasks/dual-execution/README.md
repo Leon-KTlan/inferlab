@@ -17,6 +17,8 @@
 BROWSER_PYTHON=/tmp/inferlab-dual-browser/bin/python scripts/dual_execution_acceptance.sh
 ```
 
+GitHub代码提交d936388的Go API、React web、Browser smoke、Container build四项检查全部通过，见 [CI证据](evidence/github-ci.json)。后续文档记录提交不改变被测试代码。
+
 结果在 [acceptance.json](evidence/acceptance.json)：Go vet、152项Go测试（含子测试）、race、前端lint/typecheck/build/test（7文件21测试，原18项保留）、固定公开源码摘要与构建、双模式TLS浏览器、Docker镜像与网络/降权探针全部通过。lint实际是tsc，不是ESLint。当前本机Node23.11.0可通过，Vitest安装曾提示推荐Node20/22/24；自托管建议用22或24。本机Go、Docker Linux VM与Chrome完成验证；Windows未实际运行。
 
 [浏览器结果](evidence/browser-result.json)：真实 API→Worker入口/Agent CLI入口→受控TLS假上游→指标→报告/图表；每种2次成功请求，无供应商调用。测试通过私有构造参数提供TLS根和回环目标；生产没有放开SSRF/TLS的开关。Worker入口在测试内经真实HTTP领取/回传；生产以独立进程/容器运行，容器隔离另以实际探针验证。1440/390/320px无横向溢出，刷新同一Run后图表保留，页面JS错误0；API Key、领取码、长期令牌均不在浏览器存储或复制文本中的敏感值字段，复制内容只带明确标记的短期私人领取码。

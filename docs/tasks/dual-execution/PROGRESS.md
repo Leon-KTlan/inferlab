@@ -9,4 +9,4 @@
 7. 验证：最终152项Go（含子测试）及race，前端21项和四门禁；真实TLS双模式+原Mock图表浏览器全通过。
 8. 隔离：Docker真实DROP计数探针与Uid/Gid65532、capabilities为0；密钥/DB/复制/日志边界有回归。
 9. 源码：35424119f07c3cdb7e00efc8ec5fc863b02213eb公开归档摘要校验与构建通过；证据在evidence/。
-10. Git/交付：全部实现/脚本/证据已push，Draft PR #11已创建/附加（依赖#10），本地预览4186已启动；高级手动CLI补全并通过未修改的原ui_smoke；GitHub checks以PR当前记录为准；无本地阻塞，staging/真实供应商见BLOCKED，不合并/上线。
+10. Git/交付：全部实现/脚本/证据已push，Draft PR #11已创建/附加（依赖#10），本地预览4186已启动；高级手动CLI补全并通过未修改的原ui_smoke；代码提交d936388的GitHub四项CI全绿（github-ci.json），本次仅文档记录；无本地阻塞，staging/真实供应商见BLOCKED，不合并/上线。
