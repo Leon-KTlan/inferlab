@@ -34,10 +34,14 @@ go run .
 - `POST /api/v1/runner-tasks/{id}/result` 接收本地 Runner 的终态指标和白名单错误码。
 - `GET /api/v1/runs` 返回当前访问者最近100次 Run，用于刷新后恢复工作台。
 - `GET /api/v1/runs/{id}` 读取持久化状态、配置快照和实时指标。
+- `POST /api/v1/runs/{id}/rerun` 使用本人终态 Mock Run 的快照创建新的 Run，成功返回202。按当前配额与并发限制执行。
 - `POST /api/v1/runs/{id}/cancel` 异步幂等取消，继续轮询确认终态。
 - `GET /api/v1/runs/{id}/events?after=0` 按事件ID查询，单次最多200条。
 - `GET /api/v1/runs/{id}/report` 终态报告，运行中返回409。
 - `GET /api/v1/reports/{candidate_run_id}/compare?baseline_run_id={baseline_run_id}` 比较同一访问者的两次 Mock Run，差值为候选减基线。
+
+Mock 目标可提供 `target.mock_scenario`，取值为 `baseline-v1`（160 ms）或
+`slow-v1`（420 ms）。省略时使用默认演示。场景会随 Run 快照保存；严格对比要求场景相同。
 
 ```json
 {

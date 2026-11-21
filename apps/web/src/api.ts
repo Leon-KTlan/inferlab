@@ -2,10 +2,15 @@ import { eventLabel, type RequestDiagnostic } from './diagnostics'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '')
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+export const mockScenarios = [
+  { id: 'baseline-v1', label: '正常 · 160 ms' },
+  { id: 'slow-v1', label: '变慢 · 420 ms' },
+] as const
+export type MockScenario = (typeof mockScenarios)[number]['id']
 
 export interface ExperimentInput {
   name: string
-  target: { type: 'mock' | 'openai_compatible'; endpoint?: string; model: string }
+  target: { type: 'mock' | 'openai_compatible'; endpoint?: string; model: string; mock_scenario?: MockScenario }
   load: { concurrency_steps: number[]; stage_seconds: number; max_requests: number; max_rps: number; timeout_ms: number }
   slo: { p95_e2e_ms: number; error_rate_max: number }
 }
@@ -15,6 +20,8 @@ export interface Run {
   status: RunStatus
   experiment_id?: string
   target_type?: 'mock' | 'openai_compatible'
+  mock_scenario?: string
+  software_version?: string
   progress?: number
   sent?: number
   completed?: number
@@ -73,7 +80,12 @@ interface BackendRun {
   finished_at?: string
   error_code?: string
   diagnostics?: RequestDiagnostic[]
-  config?: { workload?: ExperimentInput['load'] }
+  software_version?: string
+  config?: {
+    target?: { mock_scenario?: string }
+    workload?: ExperimentInput['load']
+    slo?: ExperimentInput['slo']
+  }
 }
 
 interface BackendRunnerTask {
@@ -122,10 +134,14 @@ export interface Report {
   id?: string
   run_id?: string
   target_type?: 'mock' | 'openai_compatible'
+  mock_scenario?: string
+  software_version?: string
+  workload?: ExperimentInput['load']
   summary?: Record<string, unknown>
-  stages?: Array<Record<string, unknown>>
+  stages?: BackendStage[]
   conclusion?: string
   recommendations?: string[]
+  methodology?: string
   slo?: { p95_e2e_ms?: number; error_rate_max?: number }
 }
 
@@ -161,6 +177,8 @@ function normalizeRun(raw: BackendRun, events: Run['events'] = []): Run {
     experiment_id: raw.experiment_id,
     status: raw.status,
     target_type: raw.source_type,
+    mock_scenario: raw.config?.target?.mock_scenario,
+    software_version: raw.software_version,
     progress: raw.status === 'succeeded' ? 100 : progress,
     sent: raw.request_count,
     completed: raw.completed_count,
@@ -228,6 +246,7 @@ export const api = {
   publicReport: (token: string) => request<PublicReport>(`/shares/${encodeURIComponent(token)}`),
   createExperiment: (input: ExperimentInput) => request<BackendExperiment>('/experiments', { method: 'POST', body: JSON.stringify(toBackendConfig(input)) }).then(experiment => ({ id: experiment.experiment_id, ...experiment })),
   startRun: (experimentId: string) => request<BackendRun>(`/experiments/${encodeURIComponent(experimentId)}/runs`, { method: 'POST' }).then(raw => normalizeRun(raw)),
+  rerunMock: (id: string) => request<BackendRun>(`/runs/${encodeURIComponent(id)}/rerun`, { method: 'POST' }).then(raw => normalizeRun(raw)),
   createRunnerTask: (experimentId: string, apiKey = '') => request<BackendRunnerTask>(`/experiments/${encodeURIComponent(experimentId)}/runner-tasks`, { method: 'POST', body: JSON.stringify({ api_key: apiKey }) }).then(task => ({ run: normalizeRunnerTask(task), task })),
   listRuns: () => request<{ runs: BackendRun[] }>('/runs').then(body => body.runs.map(raw => normalizeRun(raw))),
   getRun: (id: string) => getNormalizedRun(id),
@@ -236,16 +255,20 @@ export const api = {
     id: raw.run_id,
     run_id: raw.run_id,
     target_type: raw.source_type,
+    mock_scenario: raw.config?.target?.mock_scenario,
+    software_version: raw.software_version,
+    workload: raw.config?.workload,
     summary: {
       total_requests: raw.request_count,
       success_rate: raw.completed_count ? (raw.success_count / raw.completed_count) * 100 : 0,
       p95_e2e_ms: raw.p95_e2e_ms,
       throughput: raw.throughput_rps,
     },
-    stages: raw.stage_summaries.map(stage => ({ ...stage, error_rate: stage.error_rate * 100, throughput: stage.throughput_rps, slo_met: stage.slo_status === 'pass' })),
+    stages: raw.stage_summaries,
     conclusion: raw.slo_status === 'pass' ? '当前采样阶段满足设定 SLO。请在授权的真实目标上复测后再做上线判断。' : raw.slo_status === 'fail' ? '至少一个阶段超出设定 SLO，需要复测并定位瓶颈。' : '当前样本不足以形成容量结论。',
     recommendations: raw.recommendations,
-    slo: undefined,
+    methodology: raw.methodology,
+    slo: raw.config?.slo,
   } satisfies Report)),
   compareRuns: (compareRunId: string, baselineRunId: string) => request<Comparison>(`/reports/${encodeURIComponent(compareRunId)}/compare?baseline_run_id=${encodeURIComponent(baselineRunId)}`),
 }

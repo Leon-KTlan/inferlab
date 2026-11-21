@@ -79,6 +79,22 @@ go run . runner --task /path/task.json --api-url http://127.0.0.1:4173 --authori
 真实 API 报告为本地客户端上报结果。请求数、输出和时间有限制，但当前没有精确
 金额预算或实际 token 吞吐统计。协议与验收边界见 `docs/specs/009-local-runner-cli.md`。
 
+## 复现 Mock 性能实验
+
+在“新建实验”选择正常（160 ms）或变慢（420 ms）的 Mock 场景。运行结束后，
+私有报告会展示负载快照、分档样本数和阈值判定。“工作台 → 全部实验与运行”
+支持从任一终态 Mock Run 按原配置复跑。
+
+从仓库根目录运行以下命令，以隔离的本地进程完成两组各三次实验，生成报告、逐请求
+样本和 P95 图表：
+
+```bash
+python3 scripts/thesis_benchmark.py --output /tmp/inferlab-thesis-results --stage-seconds 15
+```
+
+详见 [实验复核工具](docs/tasks/thesis/04-experiment-tool.md) 和
+[实验与答辩运行手册](docs/tasks/thesis/RUNBOOK.md)。
+
 ## 容器运行
 
 生产镜像会同时包含 Go API 和前端静态文件。先设置只存在于部署环境的会话密钥：

@@ -23,3 +23,21 @@
 .beta-page p,.beta-export p{line-height:1.7;margin:8px 0 12px}
 .beta-draft{border-left:3px solid #af681b;padding-left:12px}
 .beta-export{margin-bottom:18px}.beta-export [role=status]:not(:empty){margin-top:10px}
+
+.form-panel .field select {
+  width: 100%;
+  border: 1px solid #d9ded7;
+  border-radius: 3px;
+  padding: 10px 11px;
+  color: var(--ink);
+  background: #fbfcf8;
+  font-size: 13px;
+}
+.history-rerun { flex: none; }
+.snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 12px 20px;
+}
+.snapshot-grid dt { color: var(--muted); font-size: 12px; }
+.snapshot-grid dd { margin: 4px 0 0; font-size: 13px; overflow-wrap: anywhere; }
