@@ -131,7 +131,7 @@ func (r RunnerResult) validateFor(config Config) error {
 }
 
 func validateLocalConfig(ctx context.Context, config Config, policy EndpointPolicy) error {
-	if config.Target.Type != "openai_compatible" || config.Target.Model == "" || len(config.Target.Model) > 120 {
+	if config.Target.Type != "openai_compatible" || config.Target.MockScenario != "" || config.Target.Model == "" || len(config.Target.Model) > 120 {
 		return errors.New("LOCAL_RUNNER_TARGET_REQUIRED")
 	}
 	// Validate workload bounds separately so endpoint resolution respects the task context.

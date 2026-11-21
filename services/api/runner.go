@@ -32,17 +32,30 @@ func newMockAdapter() (*MockAdapter, error) {
 			http.NotFound(w, r)
 			return
 		}
-		n := active.Add(1)
-		defer active.Add(-1)
-		seq := sequence.Add(1)
-		timer := time.NewTimer(time.Duration(35+n*15+int64(seq%7)*5) * time.Millisecond)
+		var delay time.Duration
+		var fail bool
+		if scenario := r.Header.Get(mockScenarioHeader); scenario != "" {
+			var ok bool
+			delay, ok = mockScenarioDelay(scenario)
+			if !ok {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		} else {
+			n := active.Add(1)
+			defer active.Add(-1)
+			seq := sequence.Add(1)
+			delay = time.Duration(35+n*15+int64(seq%7)*5) * time.Millisecond
+			fail = seq%17 == 0
+		}
+		timer := time.NewTimer(delay)
 		defer timer.Stop()
 		select {
 		case <-r.Context().Done():
 			return
 		case <-timer.C:
 		}
-		if seq%17 == 0 {
+		if fail {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
@@ -56,9 +69,16 @@ func newMockAdapter() (*MockAdapter, error) {
 }
 
 func (m *MockAdapter) Request(ctx context.Context) string {
+	return m.requestWithScenario(ctx, "")
+}
+
+func (m *MockAdapter) requestWithScenario(ctx context.Context, scenario string) string {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+m.listener.Addr().String()+"/v1/chat/completions", nil)
 	if err != nil {
 		return "REQUEST_INVALID"
+	}
+	if scenario != "" {
+		req.Header.Set(mockScenarioHeader, scenario)
 	}
 	response, err := m.client.Do(req)
 	if err != nil {
@@ -124,7 +144,11 @@ func (r *Runner) startWithContext(parent context.Context, owner string, experime
 	if len(runIDs) > 0 && runIDs[0] != "" {
 		runID = runIDs[0]
 	}
-	run := Run{RunID: runID, ExperimentID: experiment.ExperimentID, Status: "queued", SourceType: sourceType, ResultKind: resultKind, SoftwareVersion: "0.1.0", Config: experiment.Config, CreatedAt: time.Now().UTC(), StageSummaries: []StageSummary{}}
+	softwareVersion := "0.1.0"
+	if sourceType == "mock" {
+		softwareVersion = "0.1.1"
+	}
+	run := Run{RunID: runID, ExperimentID: experiment.ExperimentID, Status: "queued", SourceType: sourceType, ResultKind: resultKind, SoftwareVersion: softwareVersion, Config: experiment.Config, CreatedAt: time.Now().UTC(), StageSummaries: []StageSummary{}}
 	if err := r.store.createRun(owner, run); err != nil {
 		return Run{}, err
 	}
@@ -175,6 +199,11 @@ func (r *Runner) execute(ctx context.Context, run Run) {
 		finish("failed", "STORAGE_WRITE_FAILED")
 		return
 	}
+	request := r.adapter.Request
+	if mock, ok := r.adapter.(*MockAdapter); ok && run.Config.Target.MockScenario != "" {
+		scenario := run.Config.Target.MockScenario
+		request = func(ctx context.Context) string { return mock.requestWithScenario(ctx, scenario) }
+	}
 	var allSamples []Sample
 	nextDispatch := time.Now()
 	for index, concurrency := range run.Config.Workload.ConcurrencySteps {
@@ -184,6 +213,11 @@ func (r *Runner) execute(ctx context.Context, run Run) {
 		run.CurrentStage = index + 1
 		stageStart := time.Now()
 		stageCtx, stageCancel := context.WithTimeout(ctx, time.Duration(run.Config.Workload.StageSeconds)*time.Second)
+		requestParent, cancelRequests := stageCtx, stageCancel
+		if run.SourceType == "mock" {
+			// The send window closes before outstanding Mock requests finish.
+			requestParent, cancelRequests = context.WithCancel(ctx)
+		}
 		stageSamples := []Sample{}
 		stageSent := 0
 		inflight := 0
@@ -192,6 +226,7 @@ func (r *Runner) execute(ctx context.Context, run Run) {
 		run.StageSummaries = append(run.StageSummaries, StageSummary{Stage: index + 1, Concurrency: concurrency, SLOStatus: "insufficient_data"})
 		if err := r.store.saveRun(run, nil, "stage_started"); err != nil {
 			stageCancel()
+			cancelRequests()
 			finish("failed", "STORAGE_WRITE_FAILED")
 			return
 		}
@@ -213,8 +248,8 @@ func (r *Runner) execute(ctx context.Context, run Run) {
 					nextDispatch = time.Now().Add(interval)
 					go func(stage int) {
 						began := time.Now().UTC()
-						requestCtx, cancel := context.WithTimeout(stageCtx, time.Duration(run.Config.Workload.TimeoutMS)*time.Millisecond)
-						code := r.adapter.Request(requestCtx)
+						requestCtx, cancel := context.WithTimeout(requestParent, time.Duration(run.Config.Workload.TimeoutMS)*time.Millisecond)
+						code := request(requestCtx)
 						cancel()
 						completed <- Sample{Stage: stage, StartedAt: began, LatencyMS: float64(time.Since(began)) / float64(time.Millisecond), ErrorCode: code}
 					}(index + 1)
@@ -238,11 +273,11 @@ func (r *Runner) execute(ctx context.Context, run Run) {
 				if err := r.store.saveRun(run, &sample, ""); err != nil {
 					storageFailed = true
 					stopping = true
-					stageCancel()
+					cancelRequests()
 				}
 			}
 			if stopping && inflight > 0 {
-				// Drain canceled requests without repeatedly selecting the closed context.
+				// Wait for in-flight requests without repeatedly selecting the closed send window.
 				for inflight > 0 {
 					sample := <-completed
 					inflight--
@@ -254,12 +289,14 @@ func (r *Runner) execute(ctx context.Context, run Run) {
 					summary.SLOStatus = sloStatus(summary.Metrics, run.Config.SLO)
 					if err := r.store.saveRun(run, &sample, ""); err != nil {
 						storageFailed = true
+						cancelRequests()
 					}
 				}
 			}
 		}
 		timer.Stop()
 		stageCancel()
+		cancelRequests()
 		summary := &run.StageSummaries[len(run.StageSummaries)-1]
 		summary.Metrics = metrics(stageSamples, stageSent, time.Since(stageStart))
 		summary.SLOStatus = sloStatus(summary.Metrics, run.Config.SLO)

@@ -10,9 +10,10 @@ import (
 )
 
 type Target struct {
-	Type     string `json:"type"`
-	Endpoint string `json:"endpoint,omitempty"`
-	Model    string `json:"model"`
+	Type         string `json:"type"`
+	Endpoint     string `json:"endpoint,omitempty"`
+	Model        string `json:"model"`
+	MockScenario string `json:"mock_scenario,omitempty"`
 }
 
 type Workload struct {
@@ -49,7 +50,15 @@ func (c *Config) validateWithEndpointPolicy(policy EndpointPolicy) error {
 		if c.Target.Endpoint != "" {
 			return errors.New("mock targets must not provide an endpoint")
 		}
+		if c.Target.MockScenario != "" {
+			if _, ok := mockScenarioDelay(c.Target.MockScenario); !ok {
+				return errors.New("mock_scenario must be baseline-v1 or slow-v1")
+			}
+		}
 	case "openai_compatible":
+		if c.Target.MockScenario != "" {
+			return errors.New("mock_scenario is only available for mock targets")
+		}
 		if _, err := validateEndpoint(context.Background(), c.Target.Endpoint, policy); err != nil {
 			return err
 		}

@@ -96,6 +96,7 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 	mux.HandleFunc("GET /api/v1/shares/{token}", a.getShare)
 	mux.HandleFunc("GET /api/v1/runs", a.listRuns)
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", a.cancelRun)
+	mux.HandleFunc("POST /api/v1/runs/{id}/rerun", a.rerunMock)
 	mux.HandleFunc("POST /api/v1/runner-tasks/{id}/result", a.submitRunnerResult)
 	mux.HandleFunc("POST /api/v1/runner-tasks/{id}/credential", a.claimRunnerCredential)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", a.getEvents)
@@ -272,12 +273,41 @@ func (a *App) startRun(w http.ResponseWriter, r *http.Request) {
 		a.readError(w, err)
 		return
 	}
+	a.startMockRun(w, owner, e)
+}
+
+func (a *App) rerunMock(w http.ResponseWriter, r *http.Request) {
+	if !a.requireLogin(w, r) {
+		return
+	}
+	owner := a.owner(w, r)
+	source, err := a.store.run(owner, r.PathValue("id"))
+	if err != nil {
+		a.readError(w, err)
+		return
+	}
+	if source.SourceType != "mock" {
+		writeError(w, http.StatusConflict, "LOCAL_RUNNER_REQUIRED", "OpenAI-compatible targets must run through the local runner task protocol")
+		return
+	}
+	if !source.terminal() {
+		writeError(w, http.StatusConflict, "RUN_NOT_FINISHED", "only terminal Mock runs can be repeated")
+		return
+	}
+	a.startMockRun(w, owner, Experiment{ExperimentID: source.ExperimentID, Config: source.Config})
+}
+
+func (a *App) startMockRun(w http.ResponseWriter, owner string, e Experiment) {
 	run, err := a.runner.start(owner, e)
 	if a.creationError(w, err) {
 		return
 	}
 	if errors.Is(err, errLocalRunnerRequired) {
 		writeError(w, http.StatusConflict, "LOCAL_RUNNER_REQUIRED", "OpenAI-compatible targets must run through the local runner task protocol")
+		return
+	}
+	if isNotFound(err) {
+		a.readError(w, err)
 		return
 	}
 	if err != nil {
