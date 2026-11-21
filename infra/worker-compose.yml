@@ -1,0 +1,22 @@
+# Independent local/self-hosted Worker. API and DB are not mounted into this container.
+services:
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/worker.Dockerfile
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID, SETPCAP]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+    environment:
+      PLATFORM_WORKER_TOKEN: ${PLATFORM_WORKER_TOKEN:?Set shared worker identity via environment}
+      CONTROL_IP: ${CONTROL_IP:?Set dedicated control service IP}
+      CONTROL_ORIGIN: ${CONTROL_ORIGIN:?Set trusted HTTPS control origin}
+    extra_hosts:
+      - '${CONTROL_HOST:?Set control certificate hostname}:${CONTROL_IP:?Set control IP}'
+    restart: 'no'

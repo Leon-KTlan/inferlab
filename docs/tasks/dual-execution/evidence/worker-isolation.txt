@@ -1,0 +1,5 @@
+Worker network probes passed: loopback, host bridge and metadata blocked.
+Uid:	65532	65532	65532	65532
+Gid:	65532	65532	65532	65532
+CapEff:	0000000000000000
+CapBnd:	0000000000000000

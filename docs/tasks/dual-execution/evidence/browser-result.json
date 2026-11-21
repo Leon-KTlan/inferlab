@@ -1,0 +1,22 @@
+{
+  "result": "passed",
+  "source": "Go TLS controlled upstream; no real provider",
+  "widths": [
+    1440,
+    390,
+    320
+  ],
+  "runs": [
+    {
+      "mode": "local_agent",
+      "completed": 2,
+      "refresh_report_chart": "passed"
+    },
+    {
+      "mode": "platform",
+      "completed": 2,
+      "refresh_report_chart": "passed"
+    }
+  ],
+  "page_errors": []
+}

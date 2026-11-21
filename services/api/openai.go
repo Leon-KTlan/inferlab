@@ -36,6 +36,7 @@ type EndpointPolicy struct {
 	AllowLoopback bool
 	TLSConfig     *tls.Config
 	HTTPClient    *http.Client
+	Resolve       func(context.Context, string, string) ([]net.IP, error)
 }
 
 func validateEndpoint(ctx context.Context, raw string, policy EndpointPolicy) (*url.URL, error) {
@@ -60,7 +61,7 @@ func validateEndpoint(ctx context.Context, raw string, policy EndpointPolicy) (*
 	if ip := net.ParseIP(host); ip != nil {
 		ips = []net.IP{ip}
 	} else {
-		ips, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
+		ips, err = resolveEndpointIPs(ctx, host, policy)
 		if err != nil || len(ips) == 0 {
 			return nil, fmt.Errorf("%s: endpoint DNS lookup failed", ErrEndpointInvalid)
 		}
@@ -76,6 +77,18 @@ func validateEndpoint(ctx context.Context, raw string, policy EndpointPolicy) (*
 func blockedIP(ip net.IP, allowLoopback bool) bool {
 	if ip == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsPrivate() {
 		return true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		if v4[0] == 0 || v4[0] >= 224 || v4[0] == 198 && v4[1]&0xfe == 18 || v4[0] == 192 && v4[1] == 0 && v4[2] == 0 {
+			return true
+		}
+	} else {
+		for _, prefix := range []string{"64:ff9b::/96", "64:ff9b:1::/48", "2002::/16", "2001::/32"} {
+			_, network, _ := net.ParseCIDR(prefix)
+			if network.Contains(ip) {
+				return true
+			}
+		}
 	}
 	// Shared address space includes Alibaba Cloud's 100.100.100.200 metadata service.
 	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1]&0xc0 == 64 {
@@ -128,14 +141,23 @@ func newOpenAICompatibleAdapterWithContext(ctx context.Context, target Target, a
 			TLSClientConfig:       policy.TLSConfig,
 			DisableKeepAlives:     false,
 		}
-		transport.DialContext = safeDialContext(policy.AllowLoopback)
+		transport.DialContext = safeDialWithPolicy(policy)
 		client = &http.Client{Transport: transport}
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &OpenAICompatibleAdapter{endpoint: endpoint, model: target.Model, apiKey: apiKey, client: client, policy: policy}, nil
 }
 
+func resolveEndpointIPs(ctx context.Context, host string, policy EndpointPolicy) ([]net.IP, error) {
+	if policy.Resolve != nil {
+		return policy.Resolve(ctx, "ip", host)
+	}
+	return net.DefaultResolver.LookupIP(ctx, "ip", host)
+}
 func safeDialContext(allowLoopback bool) func(context.Context, string, string) (net.Conn, error) {
+	return safeDialWithPolicy(EndpointPolicy{AllowLoopback: allowLoopback})
+}
+func safeDialWithPolicy(policy EndpointPolicy) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
@@ -145,15 +167,17 @@ func safeDialContext(allowLoopback bool) func(context.Context, string, string) (
 		if ip := net.ParseIP(host); ip != nil {
 			ips = []net.IP{ip}
 		} else {
-			ips, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
+			ips, err = resolveEndpointIPs(ctx, host, policy)
 			if err != nil {
 				return nil, err
 			}
 		}
 		for _, ip := range ips {
-			if blockedIP(ip, allowLoopback) {
-				continue
+			if blockedIP(ip, policy.AllowLoopback) {
+				return nil, fmt.Errorf("%s: mixed or restricted DNS", ErrSSRFBlocked)
 			}
+		}
+		for _, ip := range ips {
 			dialer := net.Dialer{Timeout: 5 * time.Second}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 		}

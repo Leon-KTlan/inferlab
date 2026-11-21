@@ -2,6 +2,8 @@
 
 状态：`accepted`；实现和 staging 验证状态分别记录，规格接受不表示已经上线。
 
+> 双执行扩展以 [013](013-dual-execution.md) 为准：平台独立 Worker 与本地 Agent 为新入口；本页手动 task 文件协议继续作为高级兼容方式。新 Agent 支持网页取消，旧 CLI 仍需 Ctrl+C。
+
 ## 目标和范围
 
 让用户从网页创建 OpenAI-compatible 任务，下载任务文件，在自己的电脑运行

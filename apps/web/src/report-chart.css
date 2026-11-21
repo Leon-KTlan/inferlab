@@ -1,0 +1,20 @@
+.latency-chart { padding-bottom: 20px; }
+.latency-chart .panel-heading { margin-bottom: 22px; }
+.latency-chart-legend { display: inline-flex; align-items: center; gap: 7px; color: var(--green); font: 11px 'DM Mono', monospace; }
+.latency-chart-legend span { width: 18px; height: 2px; background: currentColor; }
+.latency-chart-plot { width: 100%; min-width: 0; }
+.latency-chart svg { display: block; overflow: visible; }
+.latency-chart svg text { fill: #657263; font: 11px 'DM Mono', monospace; }
+.latency-chart svg .latency-chart-axis-title { fill: #465743; font: 11px Manrope, ui-sans-serif, system-ui, sans-serif; }
+.latency-chart-grid { stroke: var(--line); stroke-dasharray: 3 5; }
+.latency-chart-line { fill: none; stroke: var(--green); stroke-width: 2; stroke-linejoin: round; }
+.latency-chart-point { fill: var(--green); stroke: var(--paper); stroke-width: 2; cursor: pointer; }
+.latency-chart-point:hover, .latency-chart-point:focus { fill: var(--lime); stroke: var(--green); stroke-width: 3; outline: none; }
+.latency-chart-readout { min-height: 20px; margin: 14px 0 4px; color: #365440; font-size: 12px; line-height: 1.7; }
+.latency-chart-note { margin: 6px 0 0; color: #657263; font-size: 11px; line-height: 1.8; }
+@media (max-width: 680px) {
+  .latency-chart .panel-heading { gap: 10px; }
+  .latency-chart .panel-heading h3 { font-size: 18px; }
+  .latency-chart .eyebrow { font-size: 9px; letter-spacing: .08em; }
+  .latency-chart-legend { margin-top: 4px; }
+}
