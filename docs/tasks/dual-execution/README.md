@@ -1,6 +1,6 @@
 # 平台代跑与本地 Agent 交接
 
-状态：本地实现和验收通过，PR待主架构审查；待staging，不代表已上线。基线固定为 `4ea482b22b2833544beb5abbde1360a3c2a2a3bb`，分支 `codex/feature/dual-execution`，堆叠依赖 PR #10（codex/feature/report-charts）。原目录及图表工作树的未提交改动未触碰，无真实供应商调用、云端资源/生产改动或支付改动。
+状态：本地实现和验收通过，[PR #11](https://github.com/Leon-KTlan/inferlab/pull/11) 待主架构审查；待staging，不代表已上线。基线固定为 `4ea482b22b2833544beb5abbde1360a3c2a2a3bb`，分支 `codex/feature/dual-execution`，堆叠依赖 PR #10（codex/feature/report-charts）。原目录及图表工作树的未提交改动未触碰，无真实供应商调用、云端资源/生产改动或支付改动。
 
 ## 改动
 
@@ -20,6 +20,8 @@ BROWSER_PYTHON=/tmp/inferlab-dual-browser/bin/python scripts/dual_execution_acce
 结果在 [acceptance.json](evidence/acceptance.json)：Go vet、152项Go测试（含子测试）、race、前端lint/typecheck/build/test（7文件21测试，原18项保留）、固定公开源码摘要与构建、双模式TLS浏览器、Docker镜像与网络/降权探针全部通过。lint实际是tsc，不是ESLint。当前本机Node23.11.0可通过，Vitest安装曾提示推荐Node20/22/24；自托管建议用22或24。本机Go、Docker Linux VM与Chrome完成验证；Windows未实际运行。
 
 [浏览器结果](evidence/browser-result.json)：真实 API→Worker入口/Agent CLI入口→受控TLS假上游→指标→报告/图表；每种2次成功请求，无供应商调用。测试通过私有构造参数提供TLS根和回环目标；生产没有放开SSRF/TLS的开关。Worker入口在测试内经真实HTTP领取/回传；生产以独立进程/容器运行，容器隔离另以实际探针验证。1440/390/320px无横向溢出，刷新同一Run后图表保留，页面JS错误0；API Key、领取码、长期令牌均不在浏览器存储或复制文本中的敏感值字段，复制内容只带明确标记的短期私人领取码。
+
+原 `scripts/ui_smoke.py` 全部断言保持不变并运行通过，包含高级CLI下载、任务文件脱敏、复制命令、刷新后令牌清除、取消记录及错误诊断。高级入口明确标为手动CLI，新双模式仍是主要流程。
 
 补充执行原 `apps/web/tests/report_charts_smoke.py`：仅将浏览器启动环境选为本机Chrome，原断言/执行器不改动。真实Mock四阶段、Tab焦点、刷新、空/单点/零/缺失图表均通过，结果见 [Mock回归](evidence/mock-charts/result.json)。Chromium自动下载网络失败后改用已安装Chrome，未把失败下载算通过。
 
