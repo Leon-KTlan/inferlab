@@ -1,13 +1,12 @@
 # 双执行进度
 
-1. 目标：公网 HTTPS 平台代跑与本地 Agent 交接都形成可追溯报告；保留 Mock/图表。
-2. 顺序：基线 → spec → API/Worker/领取码 → Web/交接 → TLS E2E/安全 → 文档/PR。
-3. 最大风险：凭据生命周期、重复领取、取消/重启后的重复发送、Worker 网络隔离。
-4. 工作树：独立 codex/feature/dual-execution，固定基线 4ea482b；不触碰其它目录改动。
-5. 依赖：PR #10 codex/feature/report-charts；本次 PR 堆叠其上。
-6. 基线：前端 lint/typecheck/build/test 全通过，18 tests；lint 是 tsc，非 ESLint。
-7. 基线：Go vet/test/race 全通过。
-8. 当前：API/Worker/Agent、SSRF/配额/租约/取消/重启已实现；Go全量/race与前端20测试通过；双模式TLS浏览器1440/390/320通过；Docker丢弃与降权探针通过。
-9. 禁止：真实供应商调用、云资源/生产修改、其它 AI、合并/线上部署。
-
-10. 剩余：固定源码提交/摘要、最终统一验收、PR与交付记录；staging/真实供应商见BLOCKED。
+1. 目标：两种受控执行路径都生成可追溯报告，保留Mock与阶段图表；本地完成，待staging。
+2. 任务0：规则、worktree/remote、固定4ea482b基线已核对；Go vet/test/race及前端18项基线全通过。
+3. 隔离分支：codex/feature/dual-execution；依赖PR #10，原目录/图表工作树未提交内容未改。
+4. 规格：013替代009的仅本地默认/手工文件默认/新Agent取消条款，旧CLI保留。
+5. API/Worker/Agent：已实现受限内存任务、租约、单次码、配额、来源快照、取消/失联/重启失败；无schema迁移。
+6. Web：显式选择平台/本地与授权，完整Agent任务、固定源码及SHA-256，不含Key/会话/长期task令牌。
+7. 验证：最终152项Go（含子测试）及race，前端21项和四门禁；真实TLS双模式+原Mock图表浏览器全通过。
+8. 隔离：Docker真实DROP计数探针与Uid/Gid65532、capabilities为0；密钥/DB/复制/日志边界有回归。
+9. 源码：35424119f07c3cdb7e00efc8ec5fc863b02213eb公开归档摘要校验与构建通过；证据在evidence/。
+10. Git/交付：核心已push；前端、脚本和最终证据待提交/PR；无本地阻塞，staging/真实供应商见BLOCKED，不合并/上线。

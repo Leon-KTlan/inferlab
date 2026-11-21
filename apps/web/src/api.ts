@@ -1,5 +1,8 @@
+import type { AgentHandoff, ExecutionMode, ExecutionSnapshot } from './agent-handoff'
 import { eventLabel, type RequestDiagnostic } from './diagnostics'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '')
+
+export interface ExecutionCapabilities { platform_available: boolean; location: string; reason: string; queue_ttl_seconds: number }
 
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
 
@@ -14,6 +17,7 @@ export interface Run {
   id: string
   status: RunStatus
   experiment_id?: string
+  execution?: ExecutionSnapshot
   target_type?: 'mock' | 'openai_compatible'
   progress?: number
   sent?: number
@@ -52,6 +56,7 @@ interface BackendStage {
 }
 
 interface BackendRun {
+  execution?: ExecutionSnapshot
   run_id: string
   experiment_id: string
   status: RunStatus
@@ -126,6 +131,7 @@ export interface Report {
   experimentId: string
   id?: string
   run_id?: string
+  execution?: ExecutionSnapshot
   target_type?: 'mock' | 'openai_compatible'
   summary?: Record<string, unknown>
   stages?: Array<Record<string, unknown>>
@@ -166,6 +172,7 @@ function normalizeRun(raw: BackendRun, events: Run['events'] = []): Run {
     experiment_id: raw.experiment_id,
     status: raw.status,
     target_type: raw.source_type,
+    execution: raw.execution,
     progress: raw.status === 'succeeded' ? 100 : progress,
     sent: raw.request_count,
     completed: raw.completed_count,
@@ -206,6 +213,12 @@ async function getNormalizedRun(id: string): Promise<Run> {
 
 let identityRequest: Promise<Identity> | undefined
 export const api = {
+  executionCapabilities: () => request<ExecutionCapabilities>('/execution-capabilities'),
+  createExecution: async (experimentId: string, mode: ExecutionMode, authorized: boolean, apiKey: string) => {
+    const created = await request<{ run: BackendRun; claim_code?: string; expires_at?: string }>(`/experiments/${encodeURIComponent(experimentId)}/executions`, { method: 'POST', body: JSON.stringify({ mode, authorized, api_key: apiKey }) })
+    const handoff: AgentHandoff | undefined = created.claim_code && created.expires_at ? { run_id: created.run.run_id, claim_code: created.claim_code, expires_at: created.expires_at, target: created.run.config.target, workload: created.run.config.workload } : undefined
+    return { run: normalizeRun(created.run), handoff }
+  },
   publicStatus: (signal?: AbortSignal) => request<{ status: 'operational' | 'degraded'; checked_at: string; support_url?: string }>('/status', { signal, credentials: 'omit', cache: 'no-store' }),
   reportExportAccess: (id: string) => request<{ access: 'granted' | 'purchase_required'; purchase_url?: string }>(`/runs/${encodeURIComponent(id)}/report/export-access`),
   downloadReportCSV: async (id: string) => {
@@ -243,13 +256,14 @@ export const api = {
     id: raw.run_id,
     run_id: raw.run_id,
     target_type: raw.source_type,
+    execution: raw.execution,
     summary: {
       total_requests: raw.request_count,
       success_rate: raw.completed_count ? (raw.success_count / raw.completed_count) * 100 : 0,
       p95_e2e_ms: raw.p95_e2e_ms,
       throughput: raw.throughput_rps,
     },
-    stages: raw.stage_summaries.map(stage => ({ ...stage, error_rate: stage.error_rate * 100, throughput: stage.throughput_rps, slo_met: stage.slo_status === 'pass' })),
+    stages: raw.stage_summaries.map(stage => ({ ...stage, error_rate: stage.error_rate * 100, throughput: stage.throughput_rps, slo_met: stage.slo_status === 'insufficient_data' ? undefined : stage.slo_status === 'pass' })),
     conclusion: raw.slo_status === 'pass' ? '当前采样阶段满足设定 SLO。请在授权的真实目标上复测后再做上线判断。' : raw.slo_status === 'fail' ? '至少一个阶段超出设定 SLO，需要复测并定位瓶颈。' : '当前样本不足以形成容量结论。',
     recommendations: raw.recommendations,
     slo: undefined,
@@ -261,6 +275,7 @@ export interface Quota { limit: number; reserved: number; remaining: number; res
 export interface RegistrationSettings { enabled: boolean; invite_configured: boolean; source: 'database' | 'environment' }
 export interface Identity { username: string; authenticated: boolean; role: '' | 'user' | 'admin'; setup_required: boolean; login_required: boolean; registration_open: boolean; report_csv_enabled?: boolean; quota: Quota }
 export interface PublicReport {
+  execution_mode?: ExecutionMode
   status: RunStatus
   source_type: 'mock' | 'openai_compatible'
   result_kind: string
