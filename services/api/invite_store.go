@@ -56,12 +56,52 @@ func (s *Store) reserveRun(owner string, run Run) error {
 	if owner != experimentOwner {
 		return sql.ErrNoRows
 	}
+	if run.Execution != nil {
+		var count int
+		if err := tx.QueryRow("SELECT count(*) FROM runs WHERE experiment_id=?", run.ExperimentID).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			return errExecutionSubmitted
+		}
+	}
 	var active, global int
 	if err = tx.QueryRow("SELECT count(*),COALESCE(sum(CASE WHEN owner=? THEN 1 ELSE 0 END),0) FROM runs WHERE status IN ('queued','running')", owner).Scan(&global, &active); err != nil {
 		return err
 	}
 	if active > 0 || global >= 4 {
 		return errBusy
+	}
+
+	if run.SourceType == "openai_compatible" {
+		rows, err := tx.Query("SELECT data FROM runs WHERE status IN ('queued','running')")
+		if err != nil {
+			return err
+		}
+		busy := false
+		for rows.Next() {
+			var data []byte
+			if err := rows.Scan(&data); err != nil {
+				rows.Close()
+				return err
+			}
+			var other Run
+			if err := json.Unmarshal(data, &other); err != nil {
+				rows.Close()
+				return err
+			}
+			if other.SourceType == "openai_compatible" && (run.Execution != nil || other.Execution != nil) && normalizedTarget(other.Config.Target.Endpoint) == normalizedTarget(run.Config.Target.Endpoint) || run.Execution != nil && run.Execution.Mode == "platform" && other.Execution != nil && other.Execution.Mode == "platform" {
+				busy = true
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		if busy {
+			return errBusy
+		}
 	}
 	now := s.now().UTC()
 	day := now.Format("2006-01-02")

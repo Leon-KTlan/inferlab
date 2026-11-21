@@ -139,7 +139,7 @@ func (a *App) identityMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		// Authentication failures and stateless runner capabilities must not mint sessions.
-		create := r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/auth/register" && r.URL.Path != "/api/v1/auth/logout" && r.URL.Path != "/api/v1/auth/setup" && !strings.HasPrefix(r.URL.Path, "/api/v1/admin/") && !strings.HasPrefix(r.URL.Path, "/api/v1/runner-tasks/") && !strings.HasSuffix(r.URL.Path, "/report/export-access") && !strings.HasSuffix(r.URL.Path, "/report.csv")
+		create := r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/auth/register" && r.URL.Path != "/api/v1/auth/logout" && r.URL.Path != "/api/v1/auth/setup" && !strings.HasPrefix(r.URL.Path, "/api/v1/admin/") && r.URL.Path != "/api/v1/runner-claims" && !strings.HasPrefix(r.URL.Path, "/api/v1/execution-leases/") && !strings.HasPrefix(r.URL.Path, "/api/v1/runner-tasks/") && !strings.HasSuffix(r.URL.Path, "/report/export-access") && !strings.HasSuffix(r.URL.Path, "/report.csv")
 		id, err := a.identify(w, r, create)
 		if err != nil {
 			writeError(w, 503, "SESSION_UNAVAILABLE", "could not load session")

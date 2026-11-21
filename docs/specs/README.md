@@ -16,4 +16,6 @@
 | `010-invite-testing.md` | 邀请身份、迁移、每日预留额度、脱敏分享和删除 | accepted；本地实现，待 staging |
 | `011-payments-monitoring-plan.md` | 后续支付、监控和真实外部依赖 | draft；未实现 |
 
+| `013-dual-execution.md` | 平台 Worker、本地 Agent、安全边界与来源快照 | accepted；本地验收，待 staging |
+
 决策规则：实现遇到规格冲突时先停止扩大改动，根代理更新规格中的决策记录，再继续实现。

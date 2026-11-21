@@ -8,13 +8,14 @@ import (
 
 // This DTO is the entire public contract. Never embed Run, Config, or diagnostics.
 type PublicReport struct {
-	Status     string         `json:"status"`
-	SourceType string         `json:"source_type"`
-	ResultKind string         `json:"result_kind"`
-	Metrics    Metrics        `json:"metrics"`
-	Stages     []StageSummary `json:"stages"`
-	SLO        SLO            `json:"slo"`
-	SLOStatus  string         `json:"slo_status"`
+	ExecutionMode string         `json:"execution_mode,omitempty"`
+	Status        string         `json:"status"`
+	SourceType    string         `json:"source_type"`
+	ResultKind    string         `json:"result_kind"`
+	Metrics       Metrics        `json:"metrics"`
+	Stages        []StageSummary `json:"stages"`
+	SLO           SLO            `json:"slo"`
+	SLOStatus     string         `json:"slo_status"`
 }
 
 func (a *App) createShare(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +55,11 @@ func (a *App) getShare(w http.ResponseWriter, r *http.Request) {
 		status = "insufficient_data"
 	}
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	writeJSON(w, 200, PublicReport{Status: run.Status, SourceType: run.SourceType, ResultKind: run.ResultKind, Metrics: run.Metrics, Stages: run.StageSummaries, SLO: run.Config.SLO, SLOStatus: status})
+	mode := ""
+	if run.Execution != nil {
+		mode = run.Execution.Mode
+	}
+	writeJSON(w, 200, PublicReport{ExecutionMode: mode, Status: run.Status, SourceType: run.SourceType, ResultKind: run.ResultKind, Metrics: run.Metrics, Stages: run.StageSummaries, SLO: run.Config.SLO, SLOStatus: status})
 }
 
 func (a *App) revokeShare(w http.ResponseWriter, r *http.Request) {

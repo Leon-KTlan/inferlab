@@ -18,9 +18,17 @@ func env(name, fallback string) string {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "runner" {
+	if len(os.Args) > 1 && (os.Args[1] == "runner" || os.Args[1] == "agent" || os.Args[1] == "worker") {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		code := runRunnerCLI(ctx, os.Args[2:], os.Stdout, os.Stderr)
+		var code int
+		switch os.Args[1] {
+		case "agent":
+			code = runAgentCLI(ctx, os.Args[2:], os.Stdin, os.Stdout, runnerCLIOptions{})
+		case "worker":
+			code = runWorker(ctx, os.Args[2:], os.Stdout, runnerCLIOptions{})
+		default:
+			code = runRunnerCLI(ctx, os.Args[2:], os.Stdout, os.Stderr)
+		}
 		stop()
 		os.Exit(code)
 	}

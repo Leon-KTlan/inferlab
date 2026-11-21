@@ -18,6 +18,7 @@ import (
 )
 
 type App struct {
+	executions  executions
 	store       *Store
 	runner      *Runner
 	mock        *MockAdapter
@@ -71,7 +72,18 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 		return cleanup(err)
 	}
 	a := &App{store: store, runner: newRunner(store, mock), mock: mock, secret: secret, secure: secureEnv, payments: payments}
+	if err := a.initExecutions(); err != nil {
+		a.runner.Close()
+		a.mock.Close()
+		return cleanup(err)
+	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/execution-capabilities", a.executionCapabilities)
+	mux.HandleFunc("POST /api/v1/experiments/{id}/executions", a.createExecution)
+	mux.HandleFunc("POST /api/v1/runner-claims", a.claimExecution)
+	mux.HandleFunc("POST /internal/worker/poll", a.workerPoll)
+	mux.HandleFunc("GET /api/v1/execution-leases/{id}/control", a.executionLease)
+	mux.HandleFunc("POST /api/v1/execution-leases/{id}/result", a.executionLease)
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /api/v1/healthz", a.health)
 	mux.HandleFunc("GET /internal/ops/metrics", a.opsMetrics(os.Getenv("OPS_METRICS_TOKEN")))
@@ -137,7 +149,13 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 }
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.handler.ServeHTTP(w, r) }
-func (a *App) Close()                                           { a.runner.Close(); a.credentials.close(); a.mock.Close(); a.store.db.Close() }
+func (a *App) Close() {
+	a.closeExecutions()
+	a.runner.Close()
+	a.credentials.close()
+	a.mock.Close()
+	a.store.db.Close()
+}
 
 func spaHandler(dir string) http.Handler {
 	files := http.FileServer(http.Dir(dir))
@@ -221,7 +239,7 @@ func (a *App) createExperiment(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &config) {
 		return
 	}
-	if err := config.validate(); err != nil {
+	if err := config.validateWithEndpointPolicy(a.executions.policy); err != nil {
 		writeError(w, 400, "INVALID_EXPERIMENT_CONFIG", err.Error())
 		return
 	}
@@ -346,6 +364,10 @@ func (a *App) createRunnerTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) creationError(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, errExecutionSubmitted) {
+		writeError(w, 409, "EXECUTION_ALREADY_SUBMITTED", "本实验已提交过执行；请查看原 Run。再次测试需创建新实验并确认预算。")
+		return true
+	}
 	var quota *quotaError
 	if errors.As(err, &quota) {
 		writeJSON(w, 429, map[string]any{"error": map[string]any{"code": "DAILY_REQUEST_QUOTA_EXCEEDED", "message": "daily reserved request quota exhausted", "quota": quota.Quota}})
@@ -365,6 +387,10 @@ func (a *App) creationError(w http.ResponseWriter, err error) bool {
 func (a *App) submitRunnerResult(w http.ResponseWriter, r *http.Request) {
 	owner := a.owner(w, r)
 	run, err := a.store.run(owner, r.PathValue("id"))
+	if err == nil && run.Execution != nil {
+		writeError(w, 403, "EXECUTION_LEASE_REQUIRED", "use the bound execution lease")
+		return
+	}
 	if isNotFound(err) && a.validRunnerToken(r.PathValue("id"), r.Header.Get("X-InferLab-Runner-Token")) {
 		owner, err = a.store.runOwner(r.PathValue("id"))
 		if err == nil {
@@ -373,6 +399,10 @@ func (a *App) submitRunnerResult(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		a.readError(w, err)
+		return
+	}
+	if run.Execution != nil {
+		writeError(w, 403, "EXECUTION_LEASE_REQUIRED", "use the bound execution lease")
 		return
 	}
 	if run.SourceType != "openai_compatible" {
@@ -441,6 +471,9 @@ func (a *App) listRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) cancelRun(w http.ResponseWriter, r *http.Request) {
+	a.executions.mu.Lock()
+	defer a.executions.mu.Unlock()
+	defer a.expireExecutionsLocked(time.Now())
 	owner := a.owner(w, r)
 	run, err := a.store.run(owner, r.PathValue("id"))
 	if err != nil {
@@ -537,6 +570,9 @@ func (a *App) getReport(w http.ResponseWriter, r *http.Request) {
 	note := "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"
 	if run.SourceType == "openai_compatible" {
 		note = "本地 Runner 实测：指标由用户本地进程对授权 OpenAI-compatible 目标采样后回传；服务端不保存目标凭证、Prompt 或响应正文，也未独立复测这些数据。"
+	}
+	if run.Execution != nil && run.Execution.Mode == "platform" {
+		note = "平台 Worker 实测：由独立执行进程对授权目标采样，测量位置以 execution 快照为准；不保存目标凭证、Prompt 或响应正文。"
 	}
 	writeJSON(w, 200, Report{Run: run, SLOStatus: status, Recommendations: recommendations, Methodology: "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。", Note: note})
 }

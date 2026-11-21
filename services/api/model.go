@@ -121,13 +121,14 @@ type StageSummary struct {
 }
 
 type Run struct {
-	RunID           string `json:"run_id"`
-	ExperimentID    string `json:"experiment_id"`
-	Status          string `json:"status"`
-	SourceType      string `json:"source_type"`
-	ResultKind      string `json:"result_kind"`
-	SoftwareVersion string `json:"software_version"`
-	Config          Config `json:"config"`
+	Execution       *ExecutionSnapshot `json:"execution,omitempty"`
+	RunID           string             `json:"run_id"`
+	ExperimentID    string             `json:"experiment_id"`
+	Status          string             `json:"status"`
+	SourceType      string             `json:"source_type"`
+	ResultKind      string             `json:"result_kind"`
+	SoftwareVersion string             `json:"software_version"`
+	Config          Config             `json:"config"`
 	Metrics
 	CurrentStage   int                 `json:"current_stage"`
 	StageSummaries []StageSummary      `json:"stage_summaries"`
