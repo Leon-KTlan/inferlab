@@ -1,0 +1,28 @@
+{
+  "experiment_type": "mock",
+  "started_at": "2026-11-21T15:14:41.435527+00:00",
+  "environment": {
+    "os": "Darwin",
+    "release": "24.6.0",
+    "arch": "arm64",
+    "python": "3.9.6",
+    "go": "go version go1.24.3 darwin/arm64"
+  },
+  "build": {
+    "git_commit": "191b729465e3e3afdd76011894b24580a021dd95",
+    "working_tree_dirty": false,
+    "binary_sha256": "8515430dcd5b02401709330707e44c0799f1e48234f504358af4f3bdab774149"
+  },
+  "sending_window_seconds": 15,
+  "scenarios": {
+    "baseline-v1": {
+      "delay_ms": 160,
+      "repeats": 3
+    },
+    "slow-v1": {
+      "delay_ms": 420,
+      "repeats": 3
+    }
+  },
+  "finished_at": "2026-11-21T15:19:18.037713+00:00"
+}

@@ -1,0 +1,602 @@
+[
+  {
+    "round": 1,
+    "scene": "baseline-v1",
+    "rerun_from": null,
+    "report": {
+      "run_id": "run_Nr9fFtz7OPs13ciKnHH8hmrkCdLDCdZW",
+      "experiment_id": "exp_0cbr_dGfkO7uIWP9ge3Wv8jHOLQgrpLJ",
+      "status": "succeeded",
+      "source_type": "mock",
+      "result_kind": "demo",
+      "software_version": "0.1.1",
+      "config": {
+        "name": "Thesis baseline-v1",
+        "target": {
+          "type": "mock",
+          "model": "mock-llm",
+          "mock_scenario": "baseline-v1"
+        },
+        "workload": {
+          "concurrency_steps": [
+            1,
+            4,
+            8
+          ],
+          "stage_seconds": 15,
+          "max_requests": 800,
+          "max_rps": 8,
+          "timeout_ms": 1000
+        },
+        "slo": {
+          "p95_e2e_ms": 250,
+          "error_rate_max": 0.05
+        }
+      },
+      "request_count": 333,
+      "completed_count": 333,
+      "success_count": 333,
+      "error_count": 0,
+      "p50_e2e_ms": 161.446,
+      "p95_e2e_ms": 162.773,
+      "error_rate": 0,
+      "throughput_rps": 7.341410001346146,
+      "duration_seconds": 45.359134,
+      "current_stage": 3,
+      "stage_summaries": [
+        {
+          "stage": 1,
+          "concurrency": 1,
+          "request_count": 93,
+          "completed_count": 93,
+          "success_count": 93,
+          "error_count": 0,
+          "p50_e2e_ms": 160.62,
+          "p95_e2e_ms": 162.469,
+          "error_rate": 0,
+          "throughput_rps": 6.174197565309753,
+          "duration_seconds": 15.062686125,
+          "slo_status": "pass"
+        },
+        {
+          "stage": 2,
+          "concurrency": 4,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 161.566,
+          "p95_e2e_ms": 162.935,
+          "error_rate": 0,
+          "throughput_rps": 7.920137034210966,
+          "duration_seconds": 15.151253,
+          "slo_status": "pass"
+        },
+        {
+          "stage": 3,
+          "concurrency": 8,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 161.571,
+          "p95_e2e_ms": 162.205,
+          "error_rate": 0,
+          "throughput_rps": 7.924156075420041,
+          "duration_seconds": 15.143568458,
+          "slo_status": "pass"
+        }
+      ],
+      "created_at": "2026-11-21T15:14:43.312814Z",
+      "started_at": "2026-11-21T15:14:43.313221Z",
+      "finished_at": "2026-11-21T15:15:28.672827Z",
+      "slo_status": "pass",
+      "recommendations": [
+        "已采样阶段满足设定阈值；请在授权真实目标上复测后评估上线。"
+      ],
+      "methodology": "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。",
+      "note": "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"
+    }
+  },
+  {
+    "round": 1,
+    "scene": "slow-v1",
+    "rerun_from": null,
+    "report": {
+      "run_id": "run_mJFyiamUkufk_J38jKUQ8-W1I8WKIlgu",
+      "experiment_id": "exp_kUdqlDRc_Q5UeevtOO9C8AEJL9cB3SUQ",
+      "status": "succeeded",
+      "source_type": "mock",
+      "result_kind": "demo",
+      "software_version": "0.1.1",
+      "config": {
+        "name": "Thesis slow-v1",
+        "target": {
+          "type": "mock",
+          "model": "mock-llm",
+          "mock_scenario": "slow-v1"
+        },
+        "workload": {
+          "concurrency_steps": [
+            1,
+            4,
+            8
+          ],
+          "stage_seconds": 15,
+          "max_requests": 800,
+          "max_rps": 8,
+          "timeout_ms": 1000
+        },
+        "slo": {
+          "p95_e2e_ms": 250,
+          "error_rate_max": 0.05
+        }
+      },
+      "request_count": 276,
+      "completed_count": 276,
+      "success_count": 276,
+      "error_count": 0,
+      "p50_e2e_ms": 421.563,
+      "p95_e2e_ms": 422.427,
+      "error_rate": 0,
+      "throughput_rps": 6.000569793236019,
+      "duration_seconds": 45.995632,
+      "current_stage": 3,
+      "stage_summaries": [
+        {
+          "stage": 1,
+          "concurrency": 1,
+          "request_count": 36,
+          "completed_count": 36,
+          "success_count": 36,
+          "error_count": 0,
+          "p50_e2e_ms": 420.627,
+          "p95_e2e_ms": 421.501,
+          "error_rate": 0,
+          "throughput_rps": 2.369273328568571,
+          "duration_seconds": 15.19453225,
+          "slo_status": "fail"
+        },
+        {
+          "stage": 2,
+          "concurrency": 4,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 421.649,
+          "p95_e2e_ms": 422.68,
+          "error_rate": 0,
+          "throughput_rps": 7.79088637693399,
+          "duration_seconds": 15.402612,
+          "slo_status": "fail"
+        },
+        {
+          "stage": 3,
+          "concurrency": 8,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 421.62,
+          "p95_e2e_ms": 422.362,
+          "error_rate": 0,
+          "throughput_rps": 7.794329553970343,
+          "duration_seconds": 15.395807833,
+          "slo_status": "fail"
+        }
+      ],
+      "created_at": "2026-11-21T15:15:28.839948Z",
+      "started_at": "2026-11-21T15:15:28.840754Z",
+      "finished_at": "2026-11-21T15:16:14.837009Z",
+      "slo_status": "fail",
+      "recommendations": [
+        "阶段 1（并发 1）P95 421.5ms，错误率 0.0%；请降低负载并复测。",
+        "阶段 2（并发 4）P95 422.7ms，错误率 0.0%；请降低负载并复测。",
+        "阶段 3（并发 8）P95 422.4ms，错误率 0.0%；请降低负载并复测。"
+      ],
+      "methodology": "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。",
+      "note": "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"
+    }
+  },
+  {
+    "round": 2,
+    "scene": "slow-v1",
+    "rerun_from": "run_mJFyiamUkufk_J38jKUQ8-W1I8WKIlgu",
+    "report": {
+      "run_id": "run_W3L-vEXMF1_hbry3lJIuwcQSEe_-99WQ",
+      "experiment_id": "exp_kUdqlDRc_Q5UeevtOO9C8AEJL9cB3SUQ",
+      "status": "succeeded",
+      "source_type": "mock",
+      "result_kind": "demo",
+      "software_version": "0.1.1",
+      "config": {
+        "name": "Thesis slow-v1",
+        "target": {
+          "type": "mock",
+          "model": "mock-llm",
+          "mock_scenario": "slow-v1"
+        },
+        "workload": {
+          "concurrency_steps": [
+            1,
+            4,
+            8
+          ],
+          "stage_seconds": 15,
+          "max_requests": 800,
+          "max_rps": 8,
+          "timeout_ms": 1000
+        },
+        "slo": {
+          "p95_e2e_ms": 250,
+          "error_rate_max": 0.05
+        }
+      },
+      "request_count": 276,
+      "completed_count": 276,
+      "success_count": 276,
+      "error_count": 0,
+      "p50_e2e_ms": 421.399,
+      "p95_e2e_ms": 422.854,
+      "error_rate": 0,
+      "throughput_rps": 5.9960706185044605,
+      "duration_seconds": 46.030145,
+      "current_stage": 3,
+      "stage_summaries": [
+        {
+          "stage": 1,
+          "concurrency": 1,
+          "request_count": 36,
+          "completed_count": 36,
+          "success_count": 36,
+          "error_count": 0,
+          "p50_e2e_ms": 420.642,
+          "p95_e2e_ms": 421.437,
+          "error_rate": 0,
+          "throughput_rps": 2.368544583139361,
+          "duration_seconds": 15.19920725,
+          "slo_status": "fail"
+        },
+        {
+          "stage": 2,
+          "concurrency": 4,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 421.466,
+          "p95_e2e_ms": 422.212,
+          "error_rate": 0,
+          "throughput_rps": 7.783597419554048,
+          "duration_seconds": 15.417035791,
+          "slo_status": "fail"
+        },
+        {
+          "stage": 3,
+          "concurrency": 8,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 421.429,
+          "p95_e2e_ms": 422.854,
+          "error_rate": 0,
+          "throughput_rps": 7.786974654492544,
+          "duration_seconds": 15.410349375,
+          "slo_status": "fail"
+        }
+      ],
+      "created_at": "2026-11-21T15:16:14.876831Z",
+      "started_at": "2026-11-21T15:16:14.878122Z",
+      "finished_at": "2026-11-21T15:17:00.908832Z",
+      "slo_status": "fail",
+      "recommendations": [
+        "阶段 1（并发 1）P95 421.4ms，错误率 0.0%；请降低负载并复测。",
+        "阶段 2（并发 4）P95 422.2ms，错误率 0.0%；请降低负载并复测。",
+        "阶段 3（并发 8）P95 422.9ms，错误率 0.0%；请降低负载并复测。"
+      ],
+      "methodology": "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。",
+      "note": "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"
+    }
+  },
+  {
+    "round": 2,
+    "scene": "baseline-v1",
+    "rerun_from": "run_Nr9fFtz7OPs13ciKnHH8hmrkCdLDCdZW",
+    "report": {
+      "run_id": "run_vc0-CjYEWutXp1xbGo63ze5_xTWALYN9",
+      "experiment_id": "exp_0cbr_dGfkO7uIWP9ge3Wv8jHOLQgrpLJ",
+      "status": "succeeded",
+      "source_type": "mock",
+      "result_kind": "demo",
+      "software_version": "0.1.1",
+      "config": {
+        "name": "Thesis baseline-v1",
+        "target": {
+          "type": "mock",
+          "model": "mock-llm",
+          "mock_scenario": "baseline-v1"
+        },
+        "workload": {
+          "concurrency_steps": [
+            1,
+            4,
+            8
+          ],
+          "stage_seconds": 15,
+          "max_requests": 800,
+          "max_rps": 8,
+          "timeout_ms": 1000
+        },
+        "slo": {
+          "p95_e2e_ms": 250,
+          "error_rate_max": 0.05
+        }
+      },
+      "request_count": 332,
+      "completed_count": 332,
+      "success_count": 332,
+      "error_count": 0,
+      "p50_e2e_ms": 161.305,
+      "p95_e2e_ms": 162.397,
+      "error_rate": 0,
+      "throughput_rps": 7.322864108022657,
+      "duration_seconds": 45.337452,
+      "current_stage": 3,
+      "stage_summaries": [
+        {
+          "stage": 1,
+          "concurrency": 1,
+          "request_count": 92,
+          "completed_count": 92,
+          "success_count": 92,
+          "error_count": 0,
+          "p50_e2e_ms": 160.503,
+          "p95_e2e_ms": 162.405,
+          "error_rate": 0,
+          "throughput_rps": 6.1070061146568655,
+          "duration_seconds": 15.064664792,
+          "slo_status": "pass"
+        },
+        {
+          "stage": 2,
+          "concurrency": 4,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 161.474,
+          "p95_e2e_ms": 162.431,
+          "error_rate": 0,
+          "throughput_rps": 7.93201439579389,
+          "duration_seconds": 15.128565584,
+          "slo_status": "pass"
+        },
+        {
+          "stage": 3,
+          "concurrency": 8,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 161.425,
+          "p95_e2e_ms": 162.051,
+          "error_rate": 0,
+          "throughput_rps": 7.928973619684127,
+          "duration_seconds": 15.134367417,
+          "slo_status": "pass"
+        }
+      ],
+      "created_at": "2026-11-21T15:17:01.111323Z",
+      "started_at": "2026-11-21T15:17:01.112565Z",
+      "finished_at": "2026-11-21T15:17:46.450611Z",
+      "slo_status": "pass",
+      "recommendations": [
+        "已采样阶段满足设定阈值；请在授权真实目标上复测后评估上线。"
+      ],
+      "methodology": "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。",
+      "note": "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"
+    }
+  },
+  {
+    "round": 3,
+    "scene": "baseline-v1",
+    "rerun_from": "run_Nr9fFtz7OPs13ciKnHH8hmrkCdLDCdZW",
+    "report": {
+      "run_id": "run_VOHSfbnXHuEB_T0v7a9bFW5K15yZJx58",
+      "experiment_id": "exp_0cbr_dGfkO7uIWP9ge3Wv8jHOLQgrpLJ",
+      "status": "succeeded",
+      "source_type": "mock",
+      "result_kind": "demo",
+      "software_version": "0.1.1",
+      "config": {
+        "name": "Thesis baseline-v1",
+        "target": {
+          "type": "mock",
+          "model": "mock-llm",
+          "mock_scenario": "baseline-v1"
+        },
+        "workload": {
+          "concurrency_steps": [
+            1,
+            4,
+            8
+          ],
+          "stage_seconds": 15,
+          "max_requests": 800,
+          "max_rps": 8,
+          "timeout_ms": 1000
+        },
+        "slo": {
+          "p95_e2e_ms": 250,
+          "error_rate_max": 0.05
+        }
+      },
+      "request_count": 333,
+      "completed_count": 333,
+      "success_count": 333,
+      "error_count": 0,
+      "p50_e2e_ms": 161.342,
+      "p95_e2e_ms": 162.664,
+      "error_rate": 0,
+      "throughput_rps": 7.3378516577264605,
+      "duration_seconds": 45.38113,
+      "current_stage": 3,
+      "stage_summaries": [
+        {
+          "stage": 1,
+          "concurrency": 1,
+          "request_count": 93,
+          "completed_count": 93,
+          "success_count": 93,
+          "error_count": 0,
+          "p50_e2e_ms": 160.66,
+          "p95_e2e_ms": 162.266,
+          "error_rate": 0,
+          "throughput_rps": 6.1653217944843,
+          "duration_seconds": 15.084370792,
+          "slo_status": "pass"
+        },
+        {
+          "stage": 2,
+          "concurrency": 4,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 161.586,
+          "p95_e2e_ms": 163.626,
+          "error_rate": 0,
+          "throughput_rps": 7.925526862194588,
+          "duration_seconds": 15.14094925,
+          "slo_status": "pass"
+        },
+        {
+          "stage": 3,
+          "concurrency": 8,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 161.396,
+          "p95_e2e_ms": 162.313,
+          "error_rate": 0,
+          "throughput_rps": 7.920059343024643,
+          "duration_seconds": 15.151401625,
+          "slo_status": "pass"
+        }
+      ],
+      "created_at": "2026-11-21T15:17:46.499203Z",
+      "started_at": "2026-11-21T15:17:46.500511Z",
+      "finished_at": "2026-11-21T15:18:31.885182Z",
+      "slo_status": "pass",
+      "recommendations": [
+        "已采样阶段满足设定阈值；请在授权真实目标上复测后评估上线。"
+      ],
+      "methodology": "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。",
+      "note": "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"
+    }
+  },
+  {
+    "round": 3,
+    "scene": "slow-v1",
+    "rerun_from": "run_mJFyiamUkufk_J38jKUQ8-W1I8WKIlgu",
+    "report": {
+      "run_id": "run_pLLJXloHKViNuBIsXBcznlmbixEvl0zN",
+      "experiment_id": "exp_kUdqlDRc_Q5UeevtOO9C8AEJL9cB3SUQ",
+      "status": "succeeded",
+      "source_type": "mock",
+      "result_kind": "demo",
+      "software_version": "0.1.1",
+      "config": {
+        "name": "Thesis slow-v1",
+        "target": {
+          "type": "mock",
+          "model": "mock-llm",
+          "mock_scenario": "slow-v1"
+        },
+        "workload": {
+          "concurrency_steps": [
+            1,
+            4,
+            8
+          ],
+          "stage_seconds": 15,
+          "max_requests": 800,
+          "max_rps": 8,
+          "timeout_ms": 1000
+        },
+        "slo": {
+          "p95_e2e_ms": 250,
+          "error_rate_max": 0.05
+        }
+      },
+      "request_count": 276,
+      "completed_count": 276,
+      "success_count": 276,
+      "error_count": 0,
+      "p50_e2e_ms": 421.565,
+      "p95_e2e_ms": 422.87,
+      "error_rate": 0,
+      "throughput_rps": 5.998660473035239,
+      "duration_seconds": 46.010272,
+      "current_stage": 3,
+      "stage_summaries": [
+        {
+          "stage": 1,
+          "concurrency": 1,
+          "request_count": 36,
+          "completed_count": 36,
+          "success_count": 36,
+          "error_count": 0,
+          "p50_e2e_ms": 420.668,
+          "p95_e2e_ms": 422.014,
+          "error_rate": 0,
+          "throughput_rps": 2.3695494595210915,
+          "duration_seconds": 15.192761584,
+          "slo_status": "fail"
+        },
+        {
+          "stage": 2,
+          "concurrency": 4,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 421.595,
+          "p95_e2e_ms": 423.36,
+          "error_rate": 0,
+          "throughput_rps": 7.785091553256655,
+          "duration_seconds": 15.414076916,
+          "slo_status": "fail"
+        },
+        {
+          "stage": 3,
+          "concurrency": 8,
+          "request_count": 120,
+          "completed_count": 120,
+          "success_count": 120,
+          "error_count": 0,
+          "p50_e2e_ms": 421.601,
+          "p95_e2e_ms": 422.299,
+          "error_rate": 0,
+          "throughput_rps": 7.791617033322174,
+          "duration_seconds": 15.401167625,
+          "slo_status": "fail"
+        }
+      ],
+      "created_at": "2026-11-21T15:18:31.974962Z",
+      "started_at": "2026-11-21T15:18:31.976054Z",
+      "finished_at": "2026-11-21T15:19:17.987025Z",
+      "slo_status": "fail",
+      "recommendations": [
+        "阶段 1（并发 1）P95 422.0ms，错误率 0.0%；请降低负载并复测。",
+        "阶段 2（并发 4）P95 423.4ms，错误率 0.0%；请降低负载并复测。",
+        "阶段 3（并发 8）P95 422.3ms，错误率 0.0%；请降低负载并复测。"
+      ],
+      "methodology": "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。",
+      "note": "Mock 实测：请求发送到进程内本地 HTTP 模拟服务，不代表真实模型服务性能。"
+    }
+  }
+]

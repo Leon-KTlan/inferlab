@@ -257,7 +257,7 @@ def write_results(output, metadata, records):
     (output / "reports.json").write_text(json.dumps(runs, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     with (output / "samples.csv").open("w", encoding="utf-8", newline="") as file:
         fields = ("round", "scene", "run_id", "stage", "started_at", "latency_ms", "error_code")
-        writer = csv.DictWriter(file, fieldnames=fields)
+        writer = csv.DictWriter(file, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         for record in records:
             for sample in record["samples"]:
@@ -266,7 +266,7 @@ def write_results(output, metadata, records):
     with (output / "stages.csv").open("w", encoding="utf-8", newline="") as file:
         fields = ("stage", "concurrency", "request_count", "completed_count", "error_count",
                   "p95_e2e_ms", "error_rate", "throughput_rps", "duration_seconds", "slo_status")
-        writer = csv.DictWriter(file, fieldnames=("round", "scene", "run_id", "max_rps") + fields)
+        writer = csv.DictWriter(file, fieldnames=("round", "scene", "run_id", "max_rps") + fields, lineterminator="\n")
         writer.writeheader()
         for record in records:
             report = record["report"]

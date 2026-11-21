@@ -1,6 +1,6 @@
 # 可复现 Mock 性能实验
 
-状态：实施中。发布证据见 `docs/tasks/thesis/`。
+状态：`accepted`。验收证据见 `docs/tasks/thesis/`。
 
 ## 目标与范围
 
