@@ -1,0 +1,23 @@
+{
+  "result": "success",
+  "tested_code_commit": "d9363885301cb7334c13542eda840d02da2fc828",
+  "run_url": "https://github.com/Leon-KTlan/inferlab/actions/runs/44877168875",
+  "jobs": [
+    {
+      "name": "React web",
+      "result": "success"
+    },
+    {
+      "name": "Go API",
+      "result": "success"
+    },
+    {
+      "name": "Browser smoke",
+      "result": "success"
+    },
+    {
+      "name": "Container build",
+      "result": "success"
+    }
+  ]
+}

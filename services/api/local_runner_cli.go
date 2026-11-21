@@ -174,8 +174,18 @@ func validateRunnerTask(ctx context.Context, task RunnerTask, policy EndpointPol
 	if !validRunnerID(task.RunID, "run_") || task.TaskID != task.RunID || !validRunnerID(task.ExperimentID, "exp_") || task.SourceType != "openai_compatible" || task.Config.Target.Type != "openai_compatible" || task.Config.Target.Model == "" || len(task.Config.Target.Model) > 120 {
 		return errors.New("invalid task identity or target")
 	}
+	expectedResult := "/api/v1/runner-tasks/" + task.RunID + "/result"
+	if task.Execution != nil {
+		if task.Execution.Mode != "local_agent" && task.Execution.Mode != "platform" {
+			return errors.New("invalid execution mode")
+		}
+		expectedResult = "/api/v1/execution-leases/" + task.RunID + "/result"
+		if task.ControlEndpoint != "/api/v1/execution-leases/"+task.RunID+"/control" {
+			return errors.New("invalid control binding")
+		}
+	}
 	token, err := base64.RawURLEncoding.DecodeString(task.TaskToken)
-	if err != nil || len(token) != 32 || task.ResultEndpoint != "/api/v1/runner-tasks/"+task.RunID+"/result" {
+	if err != nil || len(token) != 32 || task.ResultEndpoint != expectedResult {
 		return errors.New("invalid task submission binding")
 	}
 	return validateLocalConfig(ctx, task.Config, policy)

@@ -1,7 +1,6 @@
 # InferLab API
 
-Mock 由 API 进程内的本地 HTTP 模拟服务执行。OpenAI-compatible 目标通过无凭证的
-本地 Runner 任务协议执行。网页可临时交接 API Key，API 进程仅在内存保存5分钟，
+Mock 由 API 进程内的本地 HTTP 模拟服务执行。OpenAI-compatible 新入口支持平台独立 Worker 或本地 Agent，详见 `docs/specs/013-dual-execution.md` 和 `docs/tasks/dual-execution/RUNBOOK.md`。以下 Runner 文件协议保留为高级兼容方式。网页可临时交接 API Key，API 进程仅在内存保存5分钟，
 供对应 Runner 领取一次，不写入数据库、任务文件或日志。
 
 ```bash
@@ -116,6 +115,13 @@ go test -race ./...
 
 数据库采用版本化非破坏迁移，拒绝高于当前支持版本的数据库。当前 schema v2，增加账户、会话、认领、限流、额度和分享表，无降级迁移。部署前停止写入并用 SQLite backup 获取完整备份，保留运行环境密钥。回滚 v1 二进制必须同时恢复 v1 备份，禁止直接修改 user_version。迁移与重复启动不删除旧记录；v1 没有每日额度账本，预留额度从 v2 创建任务开始记录。
 
-当前仍需 staging 验证；支付、正式监控、密码重置、全量数据保留策略和分布式任务锁尚未实现。过期限流桶在身份尝试时有限清理，会话在身份尝试及插入时有限清理。真实 API 仅支持本地 Runner 协议，单实例运行，禁止多个进程同时使用同一个数据库执行任务。公开部署前还需反向代理级别的访问限流和资源限制。实施/测试证据见 `docs/tasks/invite-testing/`。
+当前仍需 staging 验证；支付、正式监控、密码重置、全量数据保留策略和分布式任务锁尚未实现。过期限流桶在身份尝试时有限清理，会话在身份尝试及插入时有限清理。真实 API 支持双执行协议，单实例运行，禁止多个进程同时使用同一个数据库执行任务。公开部署前还需反向代理级别的访问限流和资源限制。实施/测试证据见 `docs/tasks/invite-testing/`。
 
 会话插入事务另清理最多128条过期/已撤销记录；匿名会话上限4096，总会话上限8192，满额时新会话503，已有有效会话继续工作。无 cookie 的无效登录/注册和429不写 sessions；任务 token 请求也不创建匿名会话。容量不代表可公开运营的流量保障，staging 须实测资源与代理限制。
+
+
+## 双执行 Beta
+
+新接口 `GET /api/v1/execution-capabilities` 和 `POST /api/v1/experiments/{id}/executions`，后者要求独立 authorized、mode 和仅内存 api_key；每实验仅提交一次，避免重复点击产生第二轮。local_agent 返回5分钟单次私人领取码；`agent --api-url ORIGIN --authorize-target` 从 stdin JSON 领取。`worker --api-url ORIGIN` 使用环境中的独立 `PLATFORM_WORKER_TOKEN`，只在 internal 控制接口领取平台任务。
+
+`PLATFORM_EXECUTION_ENABLED=true` 才启用平台，并要求32字节以上 Worker token、`PLATFORM_LOCATION` 和 `PLATFORM_ISOLATION_CONFIRMED=true`；确认值只应在独立容器的网络丢弃/降权探针通过后设置。默认关闭。无新增数据库schema，Run JSON新增 execution；旧记录正常读取。新入口上限并发4/RPS5/100请求/累计45秒/单请求10秒，平台1、用户1、规范化目标1；仍共用原全局4与日配额。执行租约失联3秒后失败，控制轮询250ms、单次750ms超时；不会自动重跑。API重启不续跑，Key、码、lease不持久化。新来源/位置不同拒绝比较。
