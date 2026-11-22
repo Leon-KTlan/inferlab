@@ -18,6 +18,14 @@ type PublicReport struct {
 }
 
 func (a *App) createShare(w http.ResponseWriter, r *http.Request) {
+	run, err := a.store.run(a.owner(w, r), r.PathValue("id"))
+	if err != nil {
+		a.readError(w, err)
+		return
+	}
+	if rejectIntelligencePerformance(w, run.Config) {
+		return
+	}
 	token, err := a.store.share(a.owner(w, r), r.PathValue("id"))
 	if errors.Is(err, errReportNotFinished) {
 		writeError(w, 409, "RUN_NOT_FINISHED", "only terminal reports can be shared")
@@ -40,6 +48,9 @@ func (a *App) getShare(w http.ResponseWriter, r *http.Request) {
 	var run Run
 	if err = json.Unmarshal(data, &run); err != nil {
 		a.readError(w, err)
+		return
+	}
+	if rejectIntelligencePerformance(w, run.Config) {
 		return
 	}
 	status := "pass"

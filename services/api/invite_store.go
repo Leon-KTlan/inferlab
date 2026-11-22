@@ -37,6 +37,10 @@ func (s *Store) quota(owner string) (Quota, error) {
 }
 
 func (s *Store) reserveRun(owner string, run Run) error {
+	return s.reserveRunAndExperiment(owner, run, nil)
+}
+
+func (s *Store) reserveRunAndExperiment(owner string, run Run, experiment *Experiment) error {
 	data, err := json.Marshal(run)
 	if err != nil {
 		return err
@@ -48,6 +52,15 @@ func (s *Store) reserveRun(owner string, run Run) error {
 	defer tx.Rollback()
 	if err = unclaimedOwner(tx, owner); err != nil {
 		return err
+	}
+	if experiment != nil {
+		experimentData, err := json.Marshal(experiment)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec("INSERT INTO experiments(id,owner,data) VALUES(?,?,?)", experiment.ExperimentID, owner, experimentData); err != nil {
+			return err
+		}
 	}
 	var experimentOwner string
 	if err = tx.QueryRow("SELECT owner FROM experiments WHERE id=?", run.ExperimentID).Scan(&experimentOwner); err != nil {

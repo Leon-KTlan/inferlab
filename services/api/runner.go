@@ -123,7 +123,7 @@ func newRunner(store *Store, adapter Adapter) *Runner {
 }
 
 func (r *Runner) start(owner string, experiment Experiment) (Run, error) {
-	if experiment.Target.Type != "mock" {
+	if experiment.Target.Type != "mock" || experiment.Intelligence != nil {
 		return Run{}, errLocalRunnerRequired
 	}
 	return r.startWithContext(context.Background(), owner, experiment, "mock", "demo")

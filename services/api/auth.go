@@ -139,7 +139,10 @@ func (a *App) identityMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		// Authentication failures and stateless runner capabilities must not mint sessions.
+		resultID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/intelligence/runs/"), "/result")
+		intelligenceResult := r.Method == http.MethodPost && r.URL.Path == "/api/v1/intelligence/runs/"+resultID+"/result" && validRunnerID(resultID, "run_")
 		create := r.URL.Path != "/api/v1/auth/login" && r.URL.Path != "/api/v1/auth/register" && r.URL.Path != "/api/v1/auth/logout" && r.URL.Path != "/api/v1/auth/setup" && !strings.HasPrefix(r.URL.Path, "/api/v1/admin/") && !strings.HasPrefix(r.URL.Path, "/api/v1/runner-tasks/") && !strings.HasSuffix(r.URL.Path, "/report/export-access") && !strings.HasSuffix(r.URL.Path, "/report.csv")
+		create = create && !intelligenceResult
 		id, err := a.identify(w, r, create)
 		if err != nil {
 			writeError(w, 503, "SESSION_UNAVAILABLE", "could not load session")

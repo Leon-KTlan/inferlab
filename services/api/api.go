@@ -18,15 +18,16 @@ import (
 )
 
 type App struct {
-	store       *Store
-	runner      *Runner
-	mock        *MockAdapter
-	secret      []byte
-	secure      bool
-	handler     http.Handler
-	credentials runnerCredentials
-	payments    *watchaAccess
-	ops         opsCounters
+	store        *Store
+	runner       *Runner
+	mock         *MockAdapter
+	secret       []byte
+	secure       bool
+	handler      http.Handler
+	credentials  runnerCredentials
+	payments     *watchaAccess
+	ops          opsCounters
+	intelligence *intelligenceRuntime
 }
 
 func newID(prefix string) string {
@@ -71,7 +72,9 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 		return cleanup(err)
 	}
 	a := &App{store: store, runner: newRunner(store, mock), mock: mock, secret: secret, secure: secureEnv, payments: payments}
+	a.intelligence = newIntelligenceRuntime(store)
 	mux := http.NewServeMux()
+	a.registerIntelligenceRoutes(mux)
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /api/v1/healthz", a.health)
 	mux.HandleFunc("GET /internal/ops/metrics", a.opsMetrics(os.Getenv("OPS_METRICS_TOKEN")))
@@ -138,7 +141,13 @@ func newApp(databasePath string, secret []byte, secureEnv bool, webDir string) (
 }
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.handler.ServeHTTP(w, r) }
-func (a *App) Close()                                           { a.runner.Close(); a.credentials.close(); a.mock.Close(); a.store.db.Close() }
+func (a *App) Close() {
+	a.intelligence.Close()
+	a.runner.Close()
+	a.credentials.close()
+	a.mock.Close()
+	a.store.db.Close()
+}
 
 func spaHandler(dir string) http.Handler {
 	files := http.FileServer(http.Dir(dir))
@@ -298,6 +307,9 @@ func (a *App) rerunMock(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) startMockRun(w http.ResponseWriter, owner string, e Experiment) {
+	if rejectIntelligencePerformance(w, e.Config) {
+		return
+	}
 	run, err := a.runner.start(owner, e)
 	if a.creationError(w, err) {
 		return
@@ -325,6 +337,9 @@ func (a *App) createRunnerTask(w http.ResponseWriter, r *http.Request) {
 	experiment, err := a.store.experiment(owner, r.PathValue("id"))
 	if err != nil {
 		a.readError(w, err)
+		return
+	}
+	if rejectIntelligencePerformance(w, experiment.Config) {
 		return
 	}
 	if experiment.Target.Type != "openai_compatible" {
@@ -405,6 +420,9 @@ func (a *App) submitRunnerResult(w http.ResponseWriter, r *http.Request) {
 		a.readError(w, err)
 		return
 	}
+	if rejectIntelligencePerformance(w, run.Config) {
+		return
+	}
 	if run.SourceType != "openai_compatible" {
 		writeError(w, http.StatusBadRequest, "LOCAL_RUNNER_TARGET_REQUIRED", "run is not owned by a local runner")
 		return
@@ -477,6 +495,10 @@ func (a *App) cancelRun(w http.ResponseWriter, r *http.Request) {
 		a.readError(w, err)
 		return
 	}
+	if run.Config.Intelligence != nil {
+		a.cancelIntelligenceRun(w, r)
+		return
+	}
 	if !run.terminal() && run.SourceType == "openai_compatible" {
 		now := time.Now().UTC()
 		run.Status = "canceled"
@@ -538,6 +560,9 @@ func (a *App) getReport(w http.ResponseWriter, r *http.Request) {
 		a.readError(w, err)
 		return
 	}
+	if rejectIntelligencePerformance(w, run.Config) {
+		return
+	}
 	if !run.terminal() {
 		writeError(w, 409, "RUN_NOT_FINISHED", "report is available when the run finishes")
 		return
@@ -569,4 +594,13 @@ func (a *App) getReport(w http.ResponseWriter, r *http.Request) {
 		note = "本地 Runner 实测：指标由用户本地进程对授权 OpenAI-compatible 目标采样后回传；服务端不保存目标凭证、Prompt 或响应正文，也未独立复测这些数据。"
 	}
 	writeJSON(w, 200, Report{Run: run, SLOStatus: status, Recommendations: recommendations, Methodology: "P50/P95 使用所有已完成请求耗时的 nearest-rank 分位数（包含错误和取消）；总体分位数由总体原始采样计算。错误率=错误数/完成数；吞吐=完成数/实际观察秒数；少于20个样本标记数据不足。", Note: note})
+}
+
+// rejectIntelligencePerformance keeps capability scores out of performance reports.
+func rejectIntelligencePerformance(w http.ResponseWriter, config Config) bool {
+	if config.Intelligence == nil {
+		return false
+	}
+	writeError(w, http.StatusConflict, "INTELLIGENCE_ROUTE_REQUIRED", "use the intelligence API for capability tests")
+	return true
 }

@@ -144,6 +144,9 @@ func (a *App) ownedExport(w http.ResponseWriter, r *http.Request) (Run, exportAc
 		a.readError(w, err)
 		return Run{}, exportAccess{}, false
 	}
+	if rejectIntelligencePerformance(w, run.Config) {
+		return Run{}, exportAccess{}, false
+	}
 	if !run.terminal() {
 		writeError(w, 409, "RUN_NOT_FINISHED", "report is available when the run finishes")
 		return Run{}, exportAccess{}, false

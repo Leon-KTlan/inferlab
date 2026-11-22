@@ -18,6 +18,12 @@ func env(name, fallback string) string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "intelligence-runner" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		code := runIntelligenceCLI(ctx, os.Args[2:], os.Stdout, os.Stderr)
+		stop()
+		os.Exit(code)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "runner" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		code := runRunnerCLI(ctx, os.Args[2:], os.Stdout, os.Stderr)
