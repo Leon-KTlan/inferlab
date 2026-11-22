@@ -156,7 +156,7 @@ func (s *Store) experiment(owner, id string) (Experiment, error) {
 }
 
 func (s *Store) experiments(owner string) ([]Experiment, error) {
-	rows, err := s.db.Query("SELECT data FROM experiments WHERE owner=? ORDER BY rowid DESC LIMIT 100", owner)
+	rows, err := s.db.Query("SELECT data FROM experiments WHERE owner=? AND COALESCE(json_type(data,'$.intelligence'),'null')!='object' ORDER BY rowid DESC LIMIT 100", owner)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func (s *Store) runOwner(id string) (string, error) {
 }
 
 func (s *Store) runs(owner string) ([]Run, error) {
-	rows, err := s.db.Query("SELECT data FROM runs WHERE owner=? ORDER BY rowid DESC LIMIT 100", owner)
+	rows, err := s.db.Query("SELECT data FROM runs WHERE owner=? AND COALESCE(json_type(data,'$.config.intelligence'),'null')!='object' ORDER BY rowid DESC LIMIT 100", owner)
 	if err != nil {
 		return nil, err
 	}

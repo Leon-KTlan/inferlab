@@ -95,6 +95,22 @@ python3 scripts/thesis_benchmark.py --output /tmp/inferlab-thesis-results --stag
 详见 [实验复核工具](docs/tasks/thesis/04-experiment-tool.md) 和
 [实验与答辩运行手册](docs/tasks/thesis/RUNBOOK.md)。
 
+## 智力检测与智商雷达
+
+侧栏“智力检测”支持五维十题的小型能力检测、每题1–3次重复、逐题结果、取消和按快照复测。
+“智商雷达”展示同一模型、目标和题库的能力分布与历史变化。至少三次完整历史可形成基线。
+
+Mock 的 reference/degraded 是两套固定回答场景，用于体验评分。真实目标由本地 CLI 执行：
+
+```bash
+cd services/api
+go run . intelligence-runner --task /path/task.json --api-url http://127.0.0.1:8080 --authorize-target
+```
+
+任务文件从检测页下载，目标需明确授权。密钥可经页面临时交接或本地环境变量提供，
+原始回答只在执行进程中评分。运行与回滚见 [能力检测手册](docs/tasks/intelligence/RUNBOOK.md)，
+题库与产品依据见 [调研记录](docs/tasks/intelligence/00-product-and-research.md)。
+
 ## 容器运行
 
 生产镜像会同时包含 Go API 和前端静态文件。先设置只存在于部署环境的会话密钥：

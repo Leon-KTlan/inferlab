@@ -102,6 +102,8 @@ jobs:
         run: python scripts/registration_settings_smoke.py
       - name: Public Beta browser smoke
         run: python -B scripts/public_beta_smoke.py
+      - name: Intelligence and radar workflow
+        run: python -B scripts/intelligence_smoke.py --output "$RUNNER_TEMP/intelligence-browser"
       - name: Independent alert delivery
         run: python -B scripts/ops_monitor_test.py
 

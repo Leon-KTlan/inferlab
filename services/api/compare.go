@@ -43,6 +43,9 @@ func metricDelta(baseline, compare Metrics) MetricDelta {
 }
 
 func comparisonIssue(baseline, compare Run) (string, string) {
+	if baseline.Config.Intelligence != nil || compare.Config.Intelligence != nil {
+		return "INTELLIGENCE_ROUTE_REQUIRED", "use intelligence radar for capability comparisons"
+	}
 	if !baseline.terminal() || !compare.terminal() {
 		return "RUN_NOT_FINISHED", "both runs must finish before comparison"
 	}

@@ -30,10 +30,11 @@ type SLO struct {
 }
 
 type Config struct {
-	Name     string   `json:"name"`
-	Target   Target   `json:"target"`
-	Workload Workload `json:"workload"`
-	SLO      SLO      `json:"slo"`
+	Name         string                `json:"name"`
+	Target       Target                `json:"target"`
+	Workload     Workload              `json:"workload"`
+	SLO          SLO                   `json:"slo"`
+	Intelligence *IntelligenceSettings `json:"intelligence,omitempty"`
 }
 
 func (c *Config) validate() error {
@@ -41,6 +42,9 @@ func (c *Config) validate() error {
 }
 
 func (c *Config) validateWithEndpointPolicy(policy EndpointPolicy) error {
+	if c.Intelligence != nil {
+		return errors.New("intelligence tasks require the intelligence API")
+	}
 	c.Name = strings.TrimSpace(c.Name)
 	if c.Name == "" || len(c.Name) > 120 {
 		return errors.New("name must contain 1 to 120 bytes")
@@ -130,13 +134,14 @@ type StageSummary struct {
 }
 
 type Run struct {
-	RunID           string `json:"run_id"`
-	ExperimentID    string `json:"experiment_id"`
-	Status          string `json:"status"`
-	SourceType      string `json:"source_type"`
-	ResultKind      string `json:"result_kind"`
-	SoftwareVersion string `json:"software_version"`
-	Config          Config `json:"config"`
+	RunID              string              `json:"run_id"`
+	ExperimentID       string              `json:"experiment_id"`
+	Status             string              `json:"status"`
+	SourceType         string              `json:"source_type"`
+	ResultKind         string              `json:"result_kind"`
+	SoftwareVersion    string              `json:"software_version"`
+	Config             Config              `json:"config"`
+	IntelligenceReport *IntelligenceReport `json:"intelligence_report,omitempty"`
 	Metrics
 	CurrentStage   int                 `json:"current_stage"`
 	StageSummaries []StageSummary      `json:"stage_summaries"`
